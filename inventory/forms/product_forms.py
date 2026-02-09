@@ -33,14 +33,31 @@ class ProductForm(forms.ModelForm):
         })
     )
     
+    # 添加初始入库数量字段
+    initial_quantity = forms.IntegerField(
+        label='初始入库数量',
+        help_text='可选：添加商品时直接设置初始库存数量，留空则默认为0',
+        required=False,
+        initial=0,
+        min_value=0,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'min': '0',
+            'step': '1',
+            'placeholder': '0',
+            'aria-label': '初始入库数量'
+        })
+    )
+    
     class Meta:
         model = Product
-        fields = ['barcode', 'name', 'category', 'color', 'size', 'description', 'price', 'cost', 'image', 'specification', 'manufacturer', 'is_active']
+        fields = ['barcode', 'name', 'category', 'color', 'size', 'description', 'price', 'cost', 'wholesale_price', 'image', 'specification', 'manufacturer', 'is_active']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '请输入商品名称', 'aria-label': '商品名称'}),
-            'price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '售价', 'inputmode': 'decimal', 'aria-label': '售价'}),
+            'price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '零售价', 'inputmode': 'decimal', 'aria-label': '零售价'}),
             'cost': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '成本价', 'inputmode': 'decimal', 'aria-label': '成本价'}),
+            'wholesale_price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '批发价（可选）', 'inputmode': 'decimal', 'aria-label': '批发价'}),
             'specification': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '规格', 'aria-label': '规格'}),
             'manufacturer': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '制造商', 'aria-label': '制造商'}),
             'category': forms.Select(attrs={'class': 'form-control form-select', 'aria-label': '商品分类'}),
@@ -109,16 +126,42 @@ class ProductForm(forms.ModelForm):
                 self.add_warning = '条码格式不符合常见标准格式，请确认无误'
                 
         return barcode
+    
+    def clean_initial_quantity(self):
+        """验证初始入库数量"""
+        initial_quantity = self.cleaned_data.get('initial_quantity')
+        if initial_quantity is not None and initial_quantity < 0:
+            raise forms.ValidationError('初始入库数量不能为负数')
+        return initial_quantity or 0
+    
+    def clean_wholesale_price(self):
+        """验证批发价"""
+        wholesale_price = self.cleaned_data.get('wholesale_price')
+        if wholesale_price is not None and wholesale_price < 0:
+            raise forms.ValidationError('批发价不能为负数')
+        return wholesale_price
         
     def clean(self):
         cleaned_data = super().clean()
         price = cleaned_data.get('price')
         cost = cleaned_data.get('cost')
+        wholesale_price = cleaned_data.get('wholesale_price')
         
         if price is not None and cost is not None and price < cost:
-            self.add_warning = '当前售价低于成本价，请确认无误'
+            self.add_warning = '当前零售价低于成本价，请确认无误'
+        
+        # 如果提供了批发价，建议批发价小于等于零售价（警告而非错误）
+        if wholesale_price is not None and price is not None and wholesale_price > price:
+            self.add_warning = '批发价大于零售价，请确认无误'
             
         return cleaned_data
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 如果是编辑模式（有instance且已保存），隐藏初始数量字段
+        if self.instance and self.instance.pk:
+            if 'initial_quantity' in self.fields:
+                del self.fields['initial_quantity']
 
 
 class CategoryForm(forms.ModelForm):

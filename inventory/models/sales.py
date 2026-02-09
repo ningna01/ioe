@@ -34,6 +34,22 @@ class Sale(models.Model):
     def total_quantity(self):
         return sum(item.quantity for item in self.items.all())
 
+    def get_sale_type(self):
+        """获取销售单的销售方式（销售单只有一种销售方式）"""
+        first_item = self.items.first()
+        if first_item:
+            return first_item.sale_type
+        return None
+
+    def get_sale_type_display(self):
+        """获取销售方式的显示文本"""
+        sale_type = self.get_sale_type()
+        if sale_type == 'retail':
+            return '零售'
+        elif sale_type == 'wholesale':
+            return '批发'
+        return ''
+
     def update_total_amount(self):
         self.total_amount = sum(item.subtotal for item in self.items.all())
         return self.total_amount
@@ -58,12 +74,18 @@ class Sale(models.Model):
 
 
 class SaleItem(models.Model):
+    SALE_TYPE_CHOICES = [
+        ('retail', '零售'),
+        ('wholesale', '批发'),
+    ]
+    
     sale = models.ForeignKey(Sale, on_delete=models.PROTECT, related_name='items', verbose_name='销售单')
     product = models.ForeignKey(Product, on_delete=models.PROTECT, verbose_name='商品')
     quantity = models.IntegerField(verbose_name='数量')
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='标准售价')
     actual_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='实际售价')
     subtotal = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='小计')
+    sale_type = models.CharField(max_length=20, choices=SALE_TYPE_CHOICES, default='retail', verbose_name='销售方式')
     
     def clean(self):
         from django.core.exceptions import ValidationError

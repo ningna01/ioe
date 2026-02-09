@@ -17,7 +17,7 @@ from datetime import datetime
 
 from inventory.models import (
     Product, Category, ProductImage, ProductBatch,
-    Inventory, Supplier
+    Inventory, InventoryTransaction, Supplier, OperationLog
 )
 from inventory.forms import (
     ProductForm, CategoryForm, ProductBatchForm,
@@ -44,6 +44,7 @@ def product_by_barcode(request, barcode):
             'product_id': product.id,
             'name': product.name,
             'price': float(product.price),
+            'wholesale_price': float(product.wholesale_price) if product.wholesale_price else None,
             'stock': stock,
             'category': product.category.name if product.category else '',
             'specification': product.specification,
@@ -69,6 +70,7 @@ def product_by_barcode(request, barcode):
                         'barcode': product.barcode,
                         'name': product.name,
                         'price': float(product.price),
+                        'wholesale_price': float(product.wholesale_price) if product.wholesale_price else None,
                         'stock': stock
                     })
                     
@@ -234,14 +236,45 @@ def product_create(request):
             warning_level = 10  # 设置一个默认的预警值
             if 'warning_level' in form.cleaned_data and form.cleaned_data['warning_level'] is not None:
                 warning_level = form.cleaned_data['warning_level']
-                
-            Inventory.objects.create(
-                product=product,
-                quantity=0,
-                warning_level=warning_level
-            )
             
-            messages.success(request, f'商品 {product.name} 创建成功')
+            # 获取初始入库数量
+            initial_quantity = form.cleaned_data.get('initial_quantity', 0) or 0
+            if initial_quantity < 0:
+                initial_quantity = 0
+                
+            # 使用数据库事务确保数据一致性
+            from django.db import transaction
+            with transaction.atomic():
+                inventory = Inventory.objects.create(
+                    product=product,
+                    quantity=initial_quantity,
+                    warning_level=warning_level
+                )
+                
+                # 如果提供了初始数量，创建入库交易记录
+                if initial_quantity > 0:
+                    InventoryTransaction.objects.create(
+                        product=product,
+                        transaction_type='IN',
+                        quantity=initial_quantity,
+                        operator=request.user,
+                        notes='商品创建时设置的初始库存'
+                    )
+                    
+                    # 记录操作日志
+                    from django.contrib.contenttypes.models import ContentType
+                    OperationLog.objects.create(
+                        operator=request.user,
+                        operation_type='INVENTORY',
+                        details=f'商品创建时设置初始库存: {product.name} x {initial_quantity}',
+                        related_object_id=inventory.id,
+                        related_content_type=ContentType.objects.get_for_model(Inventory)
+                    )
+            
+            if initial_quantity > 0:
+                messages.success(request, f'商品 {product.name} 创建成功，初始库存已设置为 {initial_quantity}')
+            else:
+                messages.success(request, f'商品 {product.name} 创建成功')
             
             # 如果是从批量页面过来，返回批量页面
             if 'next' in request.POST and request.POST['next'] == 'bulk':
@@ -587,10 +620,11 @@ def product_bulk_create(request):
                 product = Product.objects.create(
                     name=product_name,
                     category=category,
-                    retail_price=retail_price,
-                    wholesale_price=wholesale_price or retail_price,
-                    cost_price=cost_price or retail_price * 0.7,
-                    created_by=request.user
+                    price=retail_price,
+                    wholesale_price=wholesale_price,
+                    cost=cost_price or retail_price * 0.7,
+                    barcode=f'AUTO{product_name}{i}',  # 自动生成条码
+                    is_active=True
                 )
                 
                 # 创建库存记录
@@ -716,9 +750,9 @@ def product_export(request):
             product.id,
             product.name,
             product.category.name if product.category else '',
-            product.retail_price,
-            product.wholesale_price,
-            product.cost_price,
+            product.price,  # 零售价
+            product.wholesale_price or '',  # 批发价
+            product.cost,  # 成本价
             product.barcode or '',
             product.sku or '',
             product.specification or '',

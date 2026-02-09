@@ -27,29 +27,42 @@
     <div class="col-12">
         <div class="card">
             <div class="card-body">
-                <div class="row mb-3">
-                    <div class="col-lg-8 mb-3 mb-lg-0">
-                        <div class="d-flex flex-column flex-md-row gap-2">
-                            <div class="input-group">
-                                <span class="input-group-text bg-primary text-white"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control border-primary" id="searchInput" placeholder="搜索订单编号或客户...">
-                                <button class="btn btn-outline-primary d-none d-md-inline-block" type="button" id="clearSearch" title="清除搜索"><i class="bi bi-x-lg"></i></button>
+                <form method="get" id="filterForm">
+                    <div class="row mb-3">
+                        <div class="col-lg-8 mb-3 mb-lg-0">
+                            <div class="d-flex flex-column flex-md-row gap-2">
+                                <div class="input-group">
+                                    <span class="input-group-text bg-primary text-white"><i class="bi bi-search"></i></span>
+                                    <input type="text" class="form-control border-primary" id="searchInput" name="q" value="{{ search_query }}" placeholder="搜索订单编号或客户...">
+                                    <button class="btn btn-outline-primary d-none d-md-inline-block" type="button" id="clearSearch" title="清除搜索"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
+                                    <input type="date" class="form-control border-primary" id="dateFilter" name="date_from" value="{{ date_from }}" placeholder="开始日期">
+                                </div>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
+                                    <input type="date" class="form-control border-primary" id="dateToFilter" name="date_to" value="{{ date_to }}" placeholder="结束日期">
+                                </div>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-primary text-white"><i class="bi bi-tag"></i></span>
+                                    <select class="form-select border-primary" id="saleTypeFilter" name="sale_type">
+                                        <option value="">全部</option>
+                                        <option value="retail" {% if sale_type == 'retail' %}selected{% endif %}>零售</option>
+                                        <option value="wholesale" {% if sale_type == 'wholesale' %}selected{% endif %}>批发</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="input-group">
-                                <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
-                                <input type="date" class="form-control border-primary" id="dateFilter" placeholder="按日期筛选">
-                                <button class="btn btn-outline-primary" type="button" id="clearDate" title="清除日期"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                        <div class="col-lg-4 d-flex justify-content-lg-end align-items-center">
+                            <div class="btn-group">
+                                <button type="button" class="btn btn-outline-secondary active" id="viewAll">全部</button>
+                                <button type="button" class="btn btn-outline-secondary" id="viewToday">今日</button>
+                                <button type="button" class="btn btn-outline-secondary" id="viewMonth">本月</button>
                             </div>
                         </div>
                     </div>
-                    <div class="col-lg-4 d-flex justify-content-lg-end align-items-center">
-                        <div class="btn-group">
-                            <button type="button" class="btn btn-outline-secondary active" id="viewAll">全部</button>
-                            <button type="button" class="btn btn-outline-secondary" id="viewToday">今日</button>
-                            <button type="button" class="btn btn-outline-secondary" id="viewMonth">本月</button>
-                        </div>
-                    </div>
-                </div>
+                </form>
                 
                 <div class="table-responsive table-container">
                     <table class="table table-striped table-hover align-middle">
@@ -57,7 +70,7 @@
                             <tr>
                                 <th>订单信息</th>
                                 <th>销售日期</th>
-                                <th>客户</th>
+                                <th>销售方式</th>
                                 <th>金额</th>
                                 <th>状态</th>
                                 <th>操作</th>
@@ -86,10 +99,10 @@
                                     </div>
                                 </td>
                                 <td>
-                                    {% if sale.member %}
-                                    <span class="badge bg-info text-dark">{{ sale.member.name }}</span>
+                                    {% if sale.get_sale_type == 'wholesale' %}
+                                    <span class="badge bg-warning text-dark">{{ sale.get_sale_type_display }}</span>
                                     {% else %}
-                                    <span class="text-muted">散客</span>
+                                    <span class="badge bg-primary">{{ sale.get_sale_type_display }}</span>
                                     {% endif %}
                                 </td>
                                 <td>
@@ -245,15 +258,24 @@
         const clearSearch = document.getElementById('clearSearch');
         
         if (searchInput) {
+            // 使用防抖处理搜索输入
+            let searchTimeout;
             searchInput.addEventListener('input', function() {
                 const searchTerm = this.value.toLowerCase();
+                
+                // 清除之前的定时器
+                clearTimeout(searchTimeout);
+                
+                // 前端实时筛选
                 filterTable();
                 
                 // 显示/隐藏清除按钮
-                if (searchTerm.length > 0) {
-                    clearSearch.classList.remove('d-none');
-                } else {
-                    clearSearch.classList.add('d-none');
+                if (clearSearch) {
+                    if (searchTerm.length > 0) {
+                        clearSearch.classList.remove('d-none');
+                    } else {
+                        clearSearch.classList.add('d-none');
+                    }
                 }
             });
             
@@ -270,19 +292,32 @@
         
         // 日期筛选功能增强
         const dateFilter = document.getElementById('dateFilter');
-        const clearDate = document.getElementById('clearDate');
+        const dateToFilter = document.getElementById('dateToFilter');
+        const saleTypeFilter = document.getElementById('saleTypeFilter');
+        const filterForm = document.getElementById('filterForm');
         
         if (dateFilter) {
             dateFilter.addEventListener('change', function() {
-                filterTable();
+                submitFilterForm();
             });
-            
-            // 清除日期
-            if (clearDate) {
-                clearDate.addEventListener('click', function() {
-                    dateFilter.value = '';
-                    filterTable();
-                });
+        }
+        
+        if (dateToFilter) {
+            dateToFilter.addEventListener('change', function() {
+                submitFilterForm();
+            });
+        }
+        
+        if (saleTypeFilter) {
+            saleTypeFilter.addEventListener('change', function() {
+                submitFilterForm();
+            });
+        }
+        
+        // 提交筛选表单
+        function submitFilterForm() {
+            if (filterForm) {
+                filterForm.submit();
             }
         }
         
@@ -294,8 +329,9 @@
         if (viewAll) {
             viewAll.addEventListener('click', function() {
                 setActiveButton(this);
-                dateFilter.value = '';
-                filterTable();
+                if (dateFilter) dateFilter.value = '';
+                if (dateToFilter) dateToFilter.value = '';
+                submitFilterForm();
             });
         }
         
@@ -303,8 +339,9 @@
             viewToday.addEventListener('click', function() {
                 setActiveButton(this);
                 const today = new Date().toISOString().split('T')[0];
-                dateFilter.value = today;
-                filterTable();
+                if (dateFilter) dateFilter.value = today;
+                if (dateToFilter) dateToFilter.value = today;
+                submitFilterForm();
             });
         }
         
@@ -313,8 +350,10 @@
                 setActiveButton(this);
                 const date = new Date();
                 const firstDay = new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0];
-                dateFilter.value = '';
-                filterTable('month');
+                const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().split('T')[0];
+                if (dateFilter) dateFilter.value = firstDay;
+                if (dateToFilter) dateToFilter.value = lastDay;
+                submitFilterForm();
             });
         }
         
@@ -325,10 +364,10 @@
             button.classList.add('active');
         }
         
-        // 表格筛选函数
+        // 表格筛选函数（前端筛选，用于实时搜索）
         function filterTable(monthFilter = null) {
-            const searchTerm = searchInput.value.toLowerCase();
-            const filterDate = dateFilter.value;
+            const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+            const filterDate = dateFilter ? dateFilter.value : '';
             const rows = document.querySelectorAll('.sale-row');
             
             rows.forEach(function(row) {
@@ -337,9 +376,9 @@
                 // 搜索条件筛选
                 if (searchTerm) {
                     const orderId = row.querySelector('h6')?.textContent.toLowerCase() || '';
-                    const customer = row.querySelector('td:nth-child(3) .badge')?.textContent.toLowerCase() || '';
+                    const saleType = row.querySelector('td:nth-child(3) .badge')?.textContent.toLowerCase() || '';
                     
-                    if (!orderId.includes(searchTerm) && !customer.includes(searchTerm)) {
+                    if (!orderId.includes(searchTerm) && !saleType.includes(searchTerm)) {
                         showRow = false;
                     }
                 }

@@ -33,9 +33,10 @@ def sale_list(request):
     search_query = request.GET.get('q', '')
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
+    sale_type = request.GET.get('sale_type', '')
     
-    # 获取所有销售单
-    sales = Sale.objects.all().order_by('-created_at')
+    # 获取所有销售单，使用prefetch_related优化查询
+    sales = Sale.objects.select_related('member', 'operator').prefetch_related('items').order_by('-created_at')
     total_sales = sales.count()
     # 应用筛选条件
     if search_query:
@@ -57,6 +58,11 @@ def sale_list(request):
             # 日期格式不正确，忽略筛选
             pass
     
+    # 应用销售方式筛选
+    if sale_type and sale_type in ['retail', 'wholesale']:
+        # 由于销售单只有一种销售方式，可以通过items__sale_type筛选
+        sales = sales.filter(items__sale_type=sale_type).distinct()
+    
     # 分页
     page_number = request.GET.get('page', 1)
     paginated_sales = paginate_queryset(sales, page_number)
@@ -66,6 +72,7 @@ def sale_list(request):
         'search_query': search_query,
         'date_from': date_from,
         'date_to': date_to,
+        'sale_type': sale_type,
         'today_sales': today_sales,
         'month_sales': month_sales,
         'total_sales': total_sales
@@ -130,11 +137,13 @@ def sale_create(request):
                 product_id = value
                 quantity = request.POST.get(f'products[{index}][quantity]', 1)
                 price = request.POST.get(f'products[{index}][price]', 0)
+                sale_type = request.POST.get(f'products[{index}][sale_type]', 'retail')
                 
                 products_data.append({
                     'product_id': product_id,
                     'quantity': quantity,
-                    'price': price
+                    'price': price,
+                    'sale_type': sale_type
                 })
         
         # 验证是否有商品数据
@@ -160,11 +169,14 @@ def sale_create(request):
                     valid_products = False
                     continue
 
+                # 获取销售方式（默认为零售）
+                sale_type = item_data.get('sale_type', 'retail')
+                
                 # 解析价格
                 try:
                     # 打印原始价格字符串用于调试
                     raw_price = item_data['price']
-                    print(f"原始价格字符串: '{raw_price}', 类型: {type(raw_price)}")
+                    print(f"原始价格字符串: '{raw_price}', 类型: {type(raw_price)}, 销售方式: {sale_type}")
                     
                     # 确保价格是字符串
                     if not isinstance(raw_price, str):
@@ -174,13 +186,17 @@ def sale_create(request):
                     price = Decimal(raw_price.replace(',', '.'))
                     
                     if price <= 0:
-                        # 如果解析的价格为0或负数，尝试从数据库获取商品价格
-                        db_price = Product.objects.filter(id=item_data['product_id']).values_list('price', flat=True).first()
+                        # 如果解析的价格为0或负数，根据销售方式从数据库获取商品价格
+                        if sale_type == 'wholesale' and product.wholesale_price:
+                            db_price = product.wholesale_price
+                            print(f"使用数据库中的商品批发价: {db_price}")
+                        else:
+                            db_price = Product.objects.filter(id=item_data['product_id']).values_list('price', flat=True).first()
+                            print(f"使用数据库中的商品零售价: {db_price}")
                         if db_price:
                             price = Decimal(db_price)
-                            print(f"使用数据库中的商品价格: {price}")
                     
-                    print(f"成功解析商品 {product.name} 的价格: {price}")
+                    print(f"成功解析商品 {product.name} 的价格: {price}, 销售方式: {sale_type}")
                     
                     # 安全检查：如果价格仍然为0，中止处理
                     if price <= 0:
@@ -204,6 +220,7 @@ def sale_create(request):
                         'quantity': quantity,
                         'price': price,
                         'subtotal': subtotal,
+                        'sale_type': sale_type,
                         'inventory': inventory_obj
                     })
                 else:
@@ -377,7 +394,8 @@ def sale_create(request):
                             quantity=item_data['quantity'],
                             price=item_data['price'],
                             actual_price=item_data['price'],
-                            subtotal=item_data['subtotal']
+                            subtotal=item_data['subtotal'],
+                            sale_type=item_data.get('sale_type', 'retail')
                         )
                         
                         # 确保小计已设置

@@ -167,6 +167,7 @@
                                 <th>单价</th>
                                 <th>实际售价</th>
                                 <th>数量</th>
+                                <th>销售方式</th>
                                 <th>小计</th>
                             </tr>
                         </thead>
@@ -200,11 +201,18 @@
                                     {% endif %}
                                 </td>
                                 <td>{{ item.quantity }}</td>
+                                <td>
+                                    {% if item.sale_type == 'wholesale' %}
+                                    <span class="badge bg-warning text-dark">{{ item.get_sale_type_display }}</span>
+                                    {% else %}
+                                    <span class="badge bg-primary">{{ item.get_sale_type_display }}</span>
+                                    {% endif %}
+                                </td>
                                 <td class="fw-bold">¥{{ item.subtotal|floatformat:2 }}</td>
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="5" class="text-center py-4">
+                                <td colspan="6" class="text-center py-4">
                                     <div class="d-flex flex-column align-items-center">
                                         <i class="bi bi-cart-x text-muted" style="font-size: 2rem;"></i>
                                         <p class="mt-2 mb-0">暂无商品明细</p>
@@ -215,16 +223,16 @@
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td colspan="4" class="text-end fw-bold">总计:</td>
+                                <td colspan="5" class="text-end fw-bold">总计:</td>
                                 <td class="fw-bold fs-5 text-success">¥{{ sale.total_amount|floatformat:2 }}</td>
                             </tr>
                             {% if sale.discount_amount %}
                             <tr>
-                                <td colspan="4" class="text-end fw-bold">优惠:</td>
+                                <td colspan="5" class="text-end fw-bold">优惠:</td>
                                 <td class="fw-bold text-danger">-¥{{ sale.discount_amount|floatformat:2 }}</td>
                             </tr>
                             <tr>
-                                <td colspan="4" class="text-end fw-bold">实付金额:</td>
+                                <td colspan="5" class="text-end fw-bold">实付金额:</td>
                                 <td class="fw-bold fs-5 text-success">¥{{ sale.final_amount|floatformat:2 }}</td>
                             </tr>
                             {% endif %}

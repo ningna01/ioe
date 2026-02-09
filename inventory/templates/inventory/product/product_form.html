@@ -40,8 +40,12 @@
                             <div class="card-body">
                                 {{ form.cost|as_crispy_field }}
                                 {{ form.price|as_crispy_field }}
+                                {{ form.wholesale_price|as_crispy_field }}
                                 {% if 'warning_level' in form.fields %}
                                     {{ form.warning_level|as_crispy_field }}
+                                {% endif %}
+                                {% if not form.instance.id and 'initial_quantity' in form.fields %}
+                                    {{ form.initial_quantity|as_crispy_field }}
                                 {% endif %}
                             </div>
                         </div>

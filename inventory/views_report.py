@@ -36,11 +36,18 @@ def sales_trend_report(request):
             end_date = form.cleaned_data['end_date']
             period = form.cleaned_data['period']
             
+            # Get sale type filter from request
+            sale_type = request.POST.get('sale_type', '')
+            sale_type_filter = None
+            if sale_type and sale_type in ['retail', 'wholesale']:
+                sale_type_filter = sale_type
+            
             # Get sales trend data
             sales_data = ReportService.get_sales_by_period(
                 start_date=start_date,
                 end_date=end_date,
-                period=period
+                period=period,
+                sale_type=sale_type_filter
             )
             
             return render(request, 'inventory/reports/sales_trend.html', {
@@ -57,11 +64,18 @@ def sales_trend_report(request):
         start_date = timezone.now().date() - timedelta(days=30)
         end_date = timezone.now().date()
         
+        # Get sale type filter from request
+        sale_type = request.GET.get('sale_type', '')
+        sale_type_filter = None
+        if sale_type and sale_type in ['retail', 'wholesale']:
+            sale_type_filter = sale_type
+        
         # Get sales trend data
         sales_data = ReportService.get_sales_by_period(
             start_date=start_date,
             end_date=end_date,
-            period='day'
+            period='day',
+            sale_type=sale_type_filter
         )
         
         return render(request, 'inventory/reports/sales_trend.html', {
@@ -86,11 +100,18 @@ def top_products_report(request):
             end_date = form.cleaned_data['end_date']
             limit = form.cleaned_data['limit']
             
+            # Get sale type filter from request
+            sale_type = request.POST.get('sale_type', '')
+            sale_type_filter = None
+            if sale_type and sale_type in ['retail', 'wholesale']:
+                sale_type_filter = sale_type
+            
             # Get top products data
             top_products = ReportService.get_top_selling_products(
                 start_date=start_date,
                 end_date=end_date,
-                limit=limit
+                limit=limit,
+                sale_type=sale_type_filter
             )
             
             return render(request, 'inventory/reports/top_products.html', {
@@ -107,11 +128,18 @@ def top_products_report(request):
         end_date = timezone.now().date()
         limit = 10  # 默认显示10个
         
+        # Get sale type filter from request
+        sale_type = request.GET.get('sale_type', '')
+        sale_type_filter = None
+        if sale_type and sale_type in ['retail', 'wholesale']:
+            sale_type_filter = sale_type
+        
         # Get top products data
         top_products = ReportService.get_top_selling_products(
             start_date=start_date,
             end_date=end_date,
-            limit=limit
+            limit=limit,
+            sale_type=sale_type_filter
         )
         
         return render(request, 'inventory/reports/top_products.html', {
@@ -182,9 +210,16 @@ def profit_report(request):
             end_date = form.cleaned_data['end_date']
             
             # Get profit data
+            # Get sale type filter from request
+            sale_type = request.POST.get('sale_type', '')
+            sale_type_filter = None
+            if sale_type and sale_type in ['retail', 'wholesale']:
+                sale_type_filter = sale_type
+            
             profit_data = ReportService.get_profit_report(
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                sale_type=sale_type_filter
             )
             
             return render(request, 'inventory/reports/profit.html', {
@@ -201,9 +236,16 @@ def profit_report(request):
         end_date = timezone.now().date()
         
         # Get profit data
+        # Get sale type filter from request
+        sale_type = request.GET.get('sale_type', '')
+        sale_type_filter = None
+        if sale_type and sale_type in ['retail', 'wholesale']:
+            sale_type_filter = sale_type
+        
         profit_data = ReportService.get_profit_report(
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            sale_type=sale_type_filter
         )
         
         return render(request, 'inventory/reports/profit.html', {

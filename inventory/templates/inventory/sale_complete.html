@@ -66,6 +66,7 @@
                                     <th>商品名称</th>
                                     <th>单价</th>
                                     <th>数量</th>
+                                    <th>销售方式</th>
                                     <th class="text-end">小计</th>
                                 </tr>
                             </thead>
@@ -75,21 +76,28 @@
                                     <td>{{ item.product.name }}</td>
                                     <td>¥{{ item.actual_price|floatformat:2 }}</td>
                                     <td>{{ item.quantity }}</td>
+                                    <td>
+                                        {% if item.sale_type == 'wholesale' %}
+                                        <span class="badge bg-warning text-dark">{{ item.get_sale_type_display }}</span>
+                                        {% else %}
+                                        <span class="badge bg-primary">{{ item.get_sale_type_display }}</span>
+                                        {% endif %}
+                                    </td>
                                     <td class="text-end">¥{{ item.subtotal|floatformat:2 }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
                             <tfoot class="table-light">
                                 <tr>
-                                    <th colspan="3" class="text-end">商品总额:</th>
+                                    <th colspan="4" class="text-end">商品总额:</th>
                                     <th class="text-end">¥{{ sale.total_amount|floatformat:2 }}</th>
                                 </tr>
                                 <tr>
-                                    <th colspan="3" class="text-end">折扣金额:</th>
+                                    <th colspan="4" class="text-end">折扣金额:</th>
                                     <th class="text-end">¥{{ sale.discount_amount|floatformat:2 }}</th>
                                 </tr>
                                 <tr>
-                                    <th colspan="3" class="text-end">应付金额:</th>
+                                    <th colspan="4" class="text-end">应付金额:</th>
                                     <th class="text-end">¥{{ sale.final_amount|floatformat:2 }}</th>
                                 </tr>
                             </tfoot>

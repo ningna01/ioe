@@ -86,16 +86,26 @@ def import_products_from_csv(csv_file, user):
                 category_name = row[category_idx].strip()
                 category, _ = Category.objects.get_or_create(name=category_name)
             
+            # 解析批发价
+            wholesale_price = None
+            if wholesale_price_idx >= 0 and row[wholesale_price_idx]:
+                try:
+                    wholesale_price = float(row[wholesale_price_idx].replace(',', ''))
+                    if wholesale_price < 0:
+                        wholesale_price = None  # 如果为负数，设为None
+                except (ValueError, IndexError):
+                    wholesale_price = None
+            
             # 创建商品
             with transaction.atomic():
                 product = Product.objects.create(
                     name=name,
                     category=category,
                     price=retail_price,
+                    wholesale_price=wholesale_price,
                     cost=float(row[cost_price_idx]) if cost_price_idx >= 0 and row[cost_price_idx] else retail_price * 0.7,
                     barcode=row[barcode_idx].strip() if barcode_idx >= 0 and row[barcode_idx] else None,
                     specification=row[specification_idx].strip() if specification_idx >= 0 and row[specification_idx] else "",
-                    created_by=user
                 )
                 
                 # 创建初始库存记录

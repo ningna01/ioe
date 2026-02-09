@@ -61,8 +61,9 @@ class Product(models.Model):
     name = models.CharField(max_length=200, verbose_name='商品名称')
     category = models.ForeignKey(Category, on_delete=models.PROTECT, verbose_name='商品分类')
     description = models.TextField(blank=True, verbose_name='商品描述')
-    price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='售价')
+    price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='零售价')
     cost = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='成本价')
+    wholesale_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name='批发价')
     image = models.ImageField(upload_to='products/', blank=True, null=True, verbose_name='商品图片')
     # 新增字段
     specification = models.CharField(max_length=200, blank=True, verbose_name='规格')
@@ -75,9 +76,11 @@ class Product(models.Model):
     
     def clean(self):
         if self.price < 0:
-            raise ValidationError('售价不能为负数')
+            raise ValidationError('零售价不能为负数')
         if self.cost < 0:
             raise ValidationError('成本价不能为负数')
+        if self.wholesale_price is not None and self.wholesale_price < 0:
+            raise ValidationError('批发价不能为负数')
     
     class Meta:
         verbose_name = '商品'

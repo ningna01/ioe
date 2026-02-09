@@ -386,10 +386,8 @@ class SalesReportForm(ReportFilterForm):
     """销售报表专用表单，继承ReportFilterForm并添加销售相关筛选"""
     SALES_TYPE_CHOICES = [
         ('all', '所有销售'),
-        ('retail', '零售销售'),
-        ('wholesale', '批发销售'),
-        ('member', '会员销售'),
-        ('online', '线上销售'),
+        ('retail', '零售'),
+        ('wholesale', '批发'),
     ]
     
     PAYMENT_METHOD_CHOICES = [
@@ -409,15 +407,15 @@ class SalesReportForm(ReportFilterForm):
     ]
     
     sales_type = forms.ChoiceField(
-        label='销售类型',
+        label='销售方式',
         choices=SALES_TYPE_CHOICES,
         required=False,
         initial='all',
         widget=forms.Select(attrs={
             'class': 'form-control form-select',
-            'aria-label': '销售类型',
+            'aria-label': '销售方式',
             'data-bs-toggle': 'tooltip',
-            'title': '按销售类型筛选',
+            'title': '按销售方式筛选（零售/批发）',
             'style': 'height: 48px; font-size: 16px;'  # 增大触摸区域和字体
         })
     )

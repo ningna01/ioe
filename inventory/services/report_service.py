@@ -14,7 +14,7 @@ class ReportService:
     """Service for generating reports and analyzing data."""
     
     @staticmethod
-    def get_sales_by_period(start_date=None, end_date=None, period='day'):
+    def get_sales_by_period(start_date=None, end_date=None, period='day', sale_type=None):
         """
         Get sales data grouped by the specified period.
         
@@ -22,6 +22,7 @@ class ReportService:
             start_date: Optional start date for filtering
             end_date: Optional end date for filtering
             period: Grouping period - 'day', 'week', or 'month'
+            sale_type: Optional sale type filter - 'retail', 'wholesale', or None for all
             
         Returns:
             QuerySet: Sales data grouped by period
@@ -42,9 +43,15 @@ class ReportService:
             trunc_func = TruncDay('created_at')
             
         # Query sales data
-        sales_data = Sale.objects.filter(
+        sales_query = Sale.objects.filter(
             created_at__range=(start_date, end_date)
-        ).annotate(
+        )
+        
+        # Apply sale type filter if specified
+        if sale_type and sale_type in ['retail', 'wholesale']:
+            sales_query = sales_query.filter(items__sale_type=sale_type).distinct()
+        
+        sales_data = sales_query.annotate(
             period=trunc_func
         ).values(
             'period'
@@ -66,7 +73,7 @@ class ReportService:
         return sales_data
     
     @staticmethod
-    def get_top_selling_products(start_date=None, end_date=None, limit=10):
+    def get_top_selling_products(start_date=None, end_date=None, limit=10, sale_type=None):
         """
         Get top selling products for the given period.
         
@@ -74,6 +81,7 @@ class ReportService:
             start_date: Optional start date for filtering
             end_date: Optional end date for filtering
             limit: Number of products to return
+            sale_type: Optional sale type filter - 'retail', 'wholesale', or None for all
             
         Returns:
             QuerySet: Top selling products
@@ -83,9 +91,15 @@ class ReportService:
         if not end_date:
             end_date = timezone.now()
             
-        return SaleItem.objects.filter(
+        items_query = SaleItem.objects.filter(
             sale__created_at__range=(start_date, end_date)
-        ).values(
+        )
+        
+        # Apply sale type filter if specified
+        if sale_type and sale_type in ['retail', 'wholesale']:
+            items_query = items_query.filter(sale_type=sale_type)
+            
+        return items_query.values(
             'product__id',
             'product__name',
             'product__barcode',
@@ -184,13 +198,14 @@ class ReportService:
         return product_turnover
     
     @staticmethod
-    def get_profit_report(start_date=None, end_date=None):
+    def get_profit_report(start_date=None, end_date=None, sale_type=None):
         """
         Generate a profit report for the given period.
         
         Args:
             start_date: Optional start date for filtering
             end_date: Optional end date for filtering
+            sale_type: Optional sale type filter - 'retail', 'wholesale', or None for all
             
         Returns:
             dict: Profit report data
@@ -201,20 +216,29 @@ class ReportService:
             end_date = timezone.now()
             
         # Sales data
-        sales_data = Sale.objects.filter(
+        sales_query = Sale.objects.filter(
             created_at__range=(start_date, end_date)
         )
         
+        # Apply sale type filter if specified
+        if sale_type and sale_type in ['retail', 'wholesale']:
+            sales_query = sales_query.filter(items__sale_type=sale_type).distinct()
+        
         # Total sales
-        total_sales = sales_data.aggregate(
+        total_sales = sales_query.aggregate(
             total_amount=Sum('total_amount'),
             final_amount=Sum('final_amount'),
             discount_amount=Sum('discount_amount')
         )
         
         # Calculate costs
-        sale_items = SaleItem.objects.filter(sale__in=sales_data)
-        total_cost = sale_items.aggregate(
+        sale_items_query = SaleItem.objects.filter(sale__in=sales_query)
+        
+        # Apply sale type filter to items if specified
+        if sale_type and sale_type in ['retail', 'wholesale']:
+            sale_items_query = sale_items_query.filter(sale_type=sale_type)
+        
+        total_cost = sale_items_query.aggregate(
             cost=Sum(F('quantity') * F('product__cost'))
         )['cost'] or 0
         
@@ -222,7 +246,7 @@ class ReportService:
         gross_profit = (total_sales['final_amount'] or 0) - total_cost
         
         # Calculate by category
-        category_data = sale_items.values(
+        category_data = sale_items_query.values(
             'product__category__name'
         ).annotate(
             sales=Sum('subtotal'),
@@ -249,8 +273,8 @@ class ReportService:
             'gross_profit': gross_profit,
             'profit_margin': profit_margin,
             'discount_amount': total_sales['discount_amount'] or 0,
-            'order_count': sales_data.count(),
-            'item_count': sale_items.count(),
+            'order_count': sales_query.count(),
+            'item_count': sale_items_query.count(),
             'category_data': list(category_data)
         }
 
@@ -478,4 +502,109 @@ class ReportService:
             'logs': logs,
             'operation_type_stats': operation_type_stats,
             'operator_stats': operator_stats
+        }
+    
+    @staticmethod
+    def get_sales_by_type(start_date=None, end_date=None):
+        """
+        按销售方式分组统计销售数据
+        
+        Args:
+            start_date: Optional start date for filtering
+            end_date: Optional end date for filtering
+            
+        Returns:
+            dict: Sales data grouped by sale type
+        """
+        if not start_date:
+            start_date = timezone.now() - timedelta(days=30)
+        if not end_date:
+            end_date = timezone.now()
+        
+        # 按销售方式统计
+        sales_by_type = SaleItem.objects.filter(
+            sale__created_at__range=(start_date, end_date)
+        ).values('sale_type').annotate(
+            total_sales=Sum('subtotal'),
+            total_quantity=Sum('quantity'),
+            total_cost=Sum(F('quantity') * F('product__cost')),
+            order_count=Count('sale', distinct=True)
+        ).annotate(
+            profit=F('total_sales') - F('total_cost'),
+            profit_margin=ExpressionWrapper(
+                F('profit') * 100 / F('total_cost'),
+                output_field=DecimalField()
+            )
+        )
+        
+        return list(sales_by_type)
+    
+    @staticmethod
+    def get_sales_type_comparison(start_date=None, end_date=None):
+        """
+        对比零售和批发的销售数据
+        
+        Args:
+            start_date: Optional start date for filtering
+            end_date: Optional end date for filtering
+            
+        Returns:
+            dict: Comparison data between retail and wholesale
+        """
+        if not start_date:
+            start_date = timezone.now() - timedelta(days=30)
+        if not end_date:
+            end_date = timezone.now()
+        
+        # 零售数据
+        retail_data = SaleItem.objects.filter(
+            sale__created_at__range=(start_date, end_date),
+            sale_type='retail'
+        ).aggregate(
+            total_sales=Sum('subtotal'),
+            total_quantity=Sum('quantity'),
+            total_cost=Sum(F('quantity') * F('product__cost')),
+            order_count=Count('sale', distinct=True)
+        )
+        
+        # 批发数据
+        wholesale_data = SaleItem.objects.filter(
+            sale__created_at__range=(start_date, end_date),
+            sale_type='wholesale'
+        ).aggregate(
+            total_sales=Sum('subtotal'),
+            total_quantity=Sum('quantity'),
+            total_cost=Sum(F('quantity') * F('product__cost')),
+            order_count=Count('sale', distinct=True)
+        )
+        
+        # 计算利润
+        retail_profit = (retail_data['total_sales'] or 0) - (retail_data['total_cost'] or 0)
+        wholesale_profit = (wholesale_data['total_sales'] or 0) - (wholesale_data['total_cost'] or 0)
+        
+        retail_margin = 0
+        if retail_data['total_cost'] and retail_data['total_cost'] > 0:
+            retail_margin = (retail_profit / retail_data['total_cost']) * 100
+        
+        wholesale_margin = 0
+        if wholesale_data['total_cost'] and wholesale_data['total_cost'] > 0:
+            wholesale_margin = (wholesale_profit / wholesale_data['total_cost']) * 100
+        
+        return {
+            'retail': {
+                'total_sales': retail_data['total_sales'] or 0,
+                'total_quantity': retail_data['total_quantity'] or 0,
+                'total_cost': retail_data['total_cost'] or 0,
+                'profit': retail_profit,
+                'profit_margin': retail_margin,
+                'order_count': retail_data['order_count'] or 0
+            },
+            'wholesale': {
+                'total_sales': wholesale_data['total_sales'] or 0,
+                'total_quantity': wholesale_data['total_quantity'] or 0,
+                'total_cost': wholesale_data['total_cost'] or 0,
+                'profit': wholesale_profit,
+                'profit_margin': wholesale_margin,
+                'order_count': wholesale_data['order_count'] or 0
+            }
         } 

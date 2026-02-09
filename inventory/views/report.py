@@ -19,7 +19,7 @@ from inventory.models import (
     Product, Category, Inventory, InventoryTransaction,
     Sale, SaleItem, Member, MemberTransaction, Store
 )
-from inventory.services import report_service
+from inventory.services.report_service import ReportService
 from inventory.utils.date_utils import get_date_range
 from inventory.forms.report_forms import ReportFilterForm, SalesReportForm
 
@@ -39,15 +39,36 @@ def sales_report(request):
         end_date = form.cleaned_data['end_date']
         store_id = form.cleaned_data.get('store')
         category_id = form.cleaned_data.get('category')
+        sales_type = form.cleaned_data.get('sales_type')
         
-        # 获取销售数据
-        sales_data = report_service.get_sales_data(start_date, end_date, store_id, category_id)
+        # 处理销售方式筛选（'all'表示全部，需要转换为None）
+        sale_type_filter = None
+        if sales_type and sales_type in ['retail', 'wholesale']:
+            sale_type_filter = sales_type
         
-        # 准备销售趋势数据
-        sales_trend = report_service.get_sales_trend(start_date, end_date, store_id)
+        # 获取销售数据（使用get_sales_by_period）
+        sales_data = ReportService.get_sales_by_period(
+            start_date=start_date, 
+            end_date=end_date, 
+            period='day',
+            sale_type=sale_type_filter
+        )
         
-        # 准备按商品分类的销售数据
-        category_sales = report_service.get_category_sales(start_date, end_date, store_id)
+        # 准备销售趋势数据（使用get_sales_by_period）
+        sales_trend = ReportService.get_sales_by_period(
+            start_date=start_date,
+            end_date=end_date,
+            period='day',
+            sale_type=sale_type_filter
+        )
+        
+        # 准备按商品分类的销售数据（使用get_profit_report）
+        profit_data = ReportService.get_profit_report(
+            start_date=start_date,
+            end_date=end_date,
+            sale_type=sale_type_filter
+        )
+        category_sales = profit_data.get('category_data', [])
         
         # 如果请求导出
         if 'export' in request.GET:
@@ -62,12 +83,13 @@ def sales_report(request):
         return render(request, 'inventory/reports/sales_report.html', {
             'form': form,
             'sales_data': sales_data,
-            'total_sales': sum(item['total_amount'] for item in sales_data),
-            'total_profit': sum(item['profit'] for item in sales_data),
+            'total_sales': sum(item.get('total_sales', 0) for item in sales_data),
+            'total_profit': sum(item.get('profit', 0) for item in sales_data),
             'sales_trend': sales_trend,
             'category_sales': category_sales,
             'start_date': start_date,
             'end_date': end_date,
+            'sale_type': sales_type,
         })
     
     # 首次访问或表单无效时

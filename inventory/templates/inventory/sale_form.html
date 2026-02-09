@@ -378,6 +378,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             id: p.product_id || p.id, // 适配两种可能的 key
                             name: p.name,
                             price: parseFloat(p.price) || 0,
+                            wholesale_price: p.wholesale_price ? parseFloat(p.wholesale_price) : null,
                             stock: parseInt(p.stock) || 0,
                             spec: p.specification || p.spec || '' // 适配多种可能的 key
                         }));
@@ -390,6 +391,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             id: productSource.product_id || productSource.id,
                             name: productSource.name,
                             price: parseFloat(productSource.price) || 0,
+                            wholesale_price: productSource.wholesale_price ? parseFloat(productSource.wholesale_price) : null,
                             stock: parseInt(productSource.stock) || 0,
                             spec: productSource.specification || productSource.spec || ''
                         };
@@ -442,6 +444,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         id: p.id, // 名称搜索 API 返回的是 id
                         name: p.name,
                         price: parseFloat(p.price) || 0,
+                        wholesale_price: p.wholesale_price ? parseFloat(p.wholesale_price) : null,
                         stock: parseInt(p.stock) || 0,
                         spec: p.specification || p.spec || ''
                     }));
@@ -701,7 +704,11 @@ document.addEventListener('DOMContentLoaded', function() {
         newRow.dataset.productId = product.id;
         newRow.dataset.maxStock = product.stock;
         newRow.dataset.productName = product.name; // 添加额外数据属性
-        const price = parseFloat(product.price) || 0; // 确保 price 已定义
+        const retailPrice = parseFloat(product.price) || 0; // 零售价
+        const wholesalePrice = parseFloat(product.wholesale_price) || retailPrice; // 批发价，如果没有则使用零售价
+        newRow.dataset.retailPrice = retailPrice;
+        newRow.dataset.wholesalePrice = wholesalePrice;
+        const defaultPrice = retailPrice; // 默认使用零售价
 
         // **构建 row HTML**
         const rowHTML = `
@@ -716,9 +723,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     <button type="button" class="btn btn-sm btn-outline-secondary increase-btn">+</button>
                 </div>
             </td>
-            <td>¥<input type="number" step="0.01" class="form-control form-control-sm price-input" value="${price.toFixed(2)}" style="width: 90px;"></td>
-            <td>${product.spec || '无规格'}</td>
-            <td class="text-end subtotal">¥${price.toFixed(2)}</td>
+            <td>¥<input type="number" step="0.01" class="form-control form-control-sm price-input" value="${defaultPrice.toFixed(2)}" style="width: 90px;"></td>
+            <td>
+                <select class="form-select form-select-sm sale-type-select" style="width: 100px;">
+                    <option value="retail" selected>零售</option>
+                    <option value="wholesale">批发</option>
+                </select>
+            </td>
+            <td class="text-end subtotal">¥${defaultPrice.toFixed(2)}</td>
             <td class="text-center">
                 <button type="button" class="btn btn-outline-danger btn-sm delete-btn">
                     <i class="bi bi-trash"></i>
@@ -768,6 +780,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const increaseBtn = newRow.querySelector('.increase-btn');
         const quantityInput = newRow.querySelector('.quantity-input');
         const priceInput = newRow.querySelector('.price-input');
+        const saleTypeSelect = newRow.querySelector('.sale-type-select');
         const deleteBtn = newRow.querySelector('.delete-btn');
         
         // 减少数量
@@ -848,6 +861,26 @@ document.addEventListener('DOMContentLoaded', function() {
                  }
                  updateRowSubtotal(newRow); // 确保最终值被计算
                  updateTotals();
+            });
+        }
+        
+        // 销售方式变更
+        if (saleTypeSelect) {
+            saleTypeSelect.addEventListener('change', function() {
+                const saleType = this.value;
+                const retailPrice = parseFloat(newRow.dataset.retailPrice) || 0;
+                const wholesalePrice = parseFloat(newRow.dataset.wholesalePrice) || retailPrice;
+                
+                // 根据选择的方式设置价格
+                if (saleType === 'wholesale') {
+                    priceInput.value = wholesalePrice.toFixed(2);
+                } else {
+                    priceInput.value = retailPrice.toFixed(2);
+                }
+                
+                // 更新小计和总计
+                updateRowSubtotal(newRow);
+                updateTotals();
             });
         }
         
@@ -1096,9 +1129,11 @@ document.addEventListener('DOMContentLoaded', function() {
            const productId = row.dataset.productId;
            const quantityInput = row.querySelector('input.quantity-input');
            const priceInput = row.querySelector('input.price-input');
+           const saleTypeSelect = row.querySelector('.sale-type-select');
            
            const quantity = quantityInput ? quantityInput.value : "1";
            const price = priceInput ? priceInput.value : "0.00";
+           const saleType = saleTypeSelect ? saleTypeSelect.value : "retail";
            
            // 创建隐藏字段并直接添加到表单
            const idField = document.createElement('input');
@@ -1119,7 +1154,13 @@ document.addEventListener('DOMContentLoaded', function() {
            priceField.value = price;
            form.appendChild(priceField);
            
-           console.log(`[updateProductIndices] Added product ${index}: id=${productId}, qty=${quantity}, price=${price}`);
+           const saleTypeField = document.createElement('input');
+           saleTypeField.type = 'hidden';
+           saleTypeField.name = `products[${index}][sale_type]`;
+           saleTypeField.value = saleType;
+           form.appendChild(saleTypeField);
+           
+           console.log(`[updateProductIndices] Added product ${index}: id=${productId}, qty=${quantity}, price=${price}, sale_type=${saleType}`);
        });
        
        // 更新商品数量计数和调试信息
@@ -1217,7 +1258,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <th width="30%">商品名称</th>
                             <th width="20%">数量</th>
                             <th width="15%">单价</th>
-                            <th width="15%">规格</th>
+                            <th width="15%">方式</th>
                             <th width="15%">小计</th>
                             <th width="5%">操作</th>
                         </tr>
