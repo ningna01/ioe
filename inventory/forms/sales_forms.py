@@ -6,23 +6,7 @@ from inventory.models.inventory import check_inventory
 
 
 class SaleForm(forms.ModelForm):
-    # 添加会员搜索字段，用于快速查找会员
-    member_search = forms.CharField(
-        max_length=100,
-        label='会员搜索',
-        required=False,
-        widget=forms.TextInput(attrs={
-            'class': 'form-control',
-            'placeholder': '输入手机号或会员名称',
-            'aria-label': '会员搜索',
-            'autocomplete': 'off',  # 防止自动填充
-            'style': 'height: 48px; font-size: 16px;',  # 增大触摸区域和字体
-            'inputmode': 'search',  # 在移动设备上显示搜索键盘
-            'data-bs-toggle': 'tooltip',  # 启用Bootstrap工具提示
-            'title': '可以输入手机号或会员名称进行搜索'
-        })
-    )
-    
+    # 会员系统已移除，之前的member_search字段已删除
     # 添加获取表单警告的方法
     def get_warnings(self):
         """获取表单验证过程中的警告信息（不阻止提交但需要提示用户的信息）"""

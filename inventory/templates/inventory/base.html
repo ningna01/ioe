@@ -605,14 +605,10 @@
                             <i class="bi bi-cart me-1"></i>销售管理
                         </a>
                     </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if '/members/' in request.path or '/member-levels/' in request.path %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="bi bi-people me-1"></i>会员管理
+                    <li class="nav-item">
+                        <a class="nav-link disabled" href="#">
+                            <i class="bi bi-people me-1"></i>会员管理（已禁用）
                         </a>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="{% url 'member_list' %}"><i class="bi bi-person-vcard me-2"></i>会员列表</a></li>
-                            <li><a class="dropdown-item" href="{% url 'member_level_list' %}"><i class="bi bi-list-stars me-2"></i>会员等级</a></li>
-                        </ul>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if '/reports/' in request.path %}active{% endif %}" href="{% url 'reports_index' %}">

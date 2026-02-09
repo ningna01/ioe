@@ -36,16 +36,11 @@ def sale_list(request):
     sale_type = request.GET.get('sale_type', '')
     
     # 获取所有销售单，使用prefetch_related优化查询
-    sales = Sale.objects.select_related('member', 'operator').prefetch_related('items').order_by('-created_at')
+    sales = Sale.objects.select_related('operator').prefetch_related('items').order_by('-created_at')
     total_sales = sales.count()
     # 应用筛选条件
     if search_query:
-        # 可以搜索销售单号、会员姓名、手机号等
-        sales = sales.filter(
-            Q(id__icontains=search_query) | 
-            Q(member__name__icontains=search_query) | 
-            Q(member__phone__icontains=search_query)
-        )
+        sales = sales.filter(id__icontains=search_query)
     
     if date_from and date_to:
         from datetime import datetime
@@ -504,8 +499,7 @@ def sale_create(request):
     # member_levels = MemberLevel.objects.all()
     
     return render(request, 'inventory/sale_form.html', {
-        'form': form,
-        'member_levels': member_levels
+        'form': form
     })
 
 @login_required
