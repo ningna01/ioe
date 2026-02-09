@@ -43,10 +43,10 @@ PERMISSIONS = {
     'add_sale': '添加销售',
     'void_sale': '作废销售',
     
-    # Member permissions
-    'view_member': '查看会员',
-    'add_member': '添加会员',
-    'change_member': '修改会员',
+    # Member permissions (removed in membership system cleanup)
+    # 'view_member': '查看会员',
+    # 'add_member': '添加会员',
+    # 'change_member': '修改会员',
     
     # Report permissions
     'view_reports': '查看报表',
@@ -69,7 +69,7 @@ ROLES = {
             'view_inventory', 'change_inventory', 'add_inventory',
             'view_product', 'add_product', 'change_product',
             'view_sale', 'add_sale', 'void_sale',
-            'view_member', 'add_member', 'change_member',
+            # 'view_member', 'add_member', 'change_member',
             'view_reports', 'export_reports',
             'perform_inventory_check', 'approve_inventory_check',
         ],
@@ -80,7 +80,7 @@ ROLES = {
             'view_inventory',
             'view_product',
             'view_sale', 'add_sale',
-            'view_member', 'add_member',
+            # 'view_member', 'add_member',
         ],
     },
     'inventory': {
@@ -97,7 +97,7 @@ def setup_permissions():
     """Set up all permissions and groups."""
     # Create all custom permissions
     for model in [
-        'inventory', 'product', 'sale', 'member', 'report', 'inventorycheck'
+        'inventory', 'product', 'sale', 'report', 'inventorycheck'
     ]:
         content_type = ContentType.objects.get_for_model(models.Model)
         
@@ -117,4 +117,4 @@ def setup_permissions():
         permissions = Permission.objects.filter(codename__in=role_info['permissions'])
         
         # Assign permissions to group
-        group.permissions.set(permissions) 
+        group.permissions.set(permissions)

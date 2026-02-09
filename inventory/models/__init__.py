@@ -13,7 +13,7 @@ from .inventory import (
 from .inventory_check import InventoryCheck, InventoryCheckItem
 
 # 会员相关模型
-from .member import Member, MemberLevel, RechargeRecord, MemberTransaction
+# from .member import Member, MemberLevel, RechargeRecord, MemberTransaction
 
 # 销售相关模型
 from .sales import Sale, SaleItem
@@ -34,7 +34,7 @@ __all__ = [
     'InventoryCheck', 'InventoryCheckItem',
     
     # 会员模型
-    'Member', 'MemberLevel', 'RechargeRecord', 'MemberTransaction',
+    # 'Member', 'MemberLevel', 'RechargeRecord', 'MemberTransaction',
     
     # 销售模型
     'Sale', 'SaleItem',

@@ -7,7 +7,7 @@ from django.db.models import Sum, Count, F, Q, Avg, ExpressionWrapper, FloatFiel
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth
 from django.utils import timezone
 
-from inventory.models import Product, Inventory, Sale, SaleItem, InventoryTransaction, Member, MemberLevel, RechargeRecord, OperationLog
+from inventory.models import Product, Inventory, Sale, SaleItem, InventoryTransaction, OperationLog
 from inventory.utils.date_utils import get_period_boundaries
 
 class ReportService:
@@ -281,184 +281,53 @@ class ReportService:
     @staticmethod
     def get_member_analysis(start_date=None, end_date=None):
         """
-        获取会员分析数据
+        会员分析功能已移除，返回空数据。
         
         Args:
             start_date: 开始日期
             end_date: 结束日期
             
         Returns:
-            dict: 会员分析数据
+            dict: 空会员分析数据
         """
-        if not start_date:
-            start_date = timezone.now().date() - timedelta(days=30)
-        if not end_date:
-            end_date = timezone.now().date()
-            
-        # 调整日期范围，包含整天
-        start_datetime = datetime.combine(start_date, datetime.min.time())
-        end_datetime = datetime.combine(end_date, datetime.max.time())
-        
-        # 获取会员等级分布
-        level_distribution = (
-            Member.objects
-            .values('level__name')
-            .annotate(count=Count('id'))
-            .order_by('level__points_threshold')
-        )
-        
-        # 会员消费排行
-        top_members = (
-            Member.objects
-            .filter(sale__created_at__range=(start_datetime, end_datetime))
-            .annotate(
-                period_spend=Sum('sale__final_amount'),
-                period_purchase_count=Count('sale')
-            )
-            .filter(period_spend__gt=0)
-            .order_by('-period_spend')[:10]
-        )
-        
-        # 获取新增会员数据
-        new_members = (
-            Member.objects
-            .filter(created_at__range=(start_datetime, end_datetime))
-            .count()
-        )
-        
-        # 获取活跃会员数据（在指定时间段内有消费的会员）
-        active_members = (
-            Member.objects
-            .filter(sale__created_at__range=(start_datetime, end_datetime))
-            .distinct()
-            .count()
-        )
-        
-        # 会员总数
-        total_members = Member.objects.count()
-        
-        # 会员消费统计
-        member_sales = (
-            Sale.objects
-            .filter(created_at__range=(start_datetime, end_datetime))
-            .filter(member__isnull=False)
-            .aggregate(
-                total_amount=Sum('final_amount'),
-                total_count=Count('id')
-            )
-        )
-        
-        # 非会员消费统计
-        non_member_sales = (
-            Sale.objects
-            .filter(created_at__range=(start_datetime, end_datetime))
-            .filter(member__isnull=True)
-            .aggregate(
-                total_amount=Sum('final_amount'),
-                total_count=Count('id')
-            )
-        )
-        
-        # 会员平均客单价
-        member_avg_order = member_sales['total_amount'] / member_sales['total_count'] if member_sales['total_count'] else 0
-        
-        # 非会员平均客单价
-        non_member_avg_order = non_member_sales['total_amount'] / non_member_sales['total_count'] if non_member_sales['total_count'] else 0
-        
-        # 计算会员活跃率
-        activity_rate = (active_members / total_members * 100) if total_members > 0 else 0
-        
         return {
-            'level_distribution': level_distribution,
-            'top_members': top_members,
-            'new_members': new_members,
-            'active_members': active_members,
-            'total_members': total_members,
-            'activity_rate': activity_rate,
-            'member_sales': member_sales,
-            'non_member_sales': non_member_sales,
-            'member_avg_order': member_avg_order,
-            'non_member_avg_order': non_member_avg_order,
+            'level_distribution': [],
+            'top_members': [],
+            'new_members': 0,
+            'active_members': 0,
+            'total_members': 0,
+            'activity_rate': 0,
+            'member_sales': {'total_amount': 0, 'total_count': 0},
+            'non_member_sales': {'total_amount': 0, 'total_count': 0},
+            'member_avg_order': 0,
+            'non_member_avg_order': 0,
         }
 
     @staticmethod
     def get_recharge_report(start_date=None, end_date=None):
         """
-        Generate a recharge report for the given period.
+        会员充值功能已移除，返回空数据。
         
         Args:
             start_date: Optional start date for filtering
             end_date: Optional end date for filtering
             
         Returns:
-            dict: Recharge report data
+            dict: 空充值报告数据
         """
-        if not start_date:
-            start_date = timezone.now() - timedelta(days=30)
-        if not end_date:
-            end_date = timezone.now()
-            
-        # 总体统计
-        summary = {
-            'total_recharge_amount': RechargeRecord.objects.filter(
-                created_at__range=(start_date, end_date)
-            ).aggregate(total=Sum('amount'))['total'] or 0,
-            
-            'total_recharge_count': RechargeRecord.objects.filter(
-                created_at__range=(start_date, end_date)
-            ).count(),
-            
-            'total_actual_amount': RechargeRecord.objects.filter(
-                created_at__range=(start_date, end_date)
-            ).aggregate(total=Sum('actual_amount'))['total'] or 0,
-            
-            'avg_recharge_amount': RechargeRecord.objects.filter(
-                created_at__range=(start_date, end_date)
-            ).aggregate(avg=Avg('amount'))['avg'] or 0,
-            
-            'recharged_member_count': RechargeRecord.objects.filter(
-                created_at__range=(start_date, end_date)
-            ).values('member').distinct().count()
-        }
-        
-        # 按日期统计充值
-        daily_recharge = RechargeRecord.objects.filter(
-            created_at__range=(start_date, end_date)
-        ).annotate(
-            day=TruncDay('created_at')
-        ).values('day').annotate(
-            total_amount=Sum('amount'),
-            actual_amount=Sum('actual_amount'),
-            count=Count('id'),
-            member_count=Count('member', distinct=True)
-        ).order_by('day')
-        
-        # 按支付方式统计
-        payment_stats = RechargeRecord.objects.filter(
-            created_at__range=(start_date, end_date)
-        ).values('payment_method').annotate(
-            count=Count('id'),
-            total_amount=Sum('amount'),
-            actual_amount=Sum('actual_amount')
-        ).order_by('-count')
-        
-        # 会员充值排行
-        top_members = Member.objects.filter(
-            recharge_records__created_at__range=(start_date, end_date)
-        ).annotate(
-            total_recharge=Sum('recharge_records__amount', 
-                              filter=Q(recharge_records__created_at__range=(start_date, end_date))),
-            recharge_count=Count('recharge_records', 
-                                filter=Q(recharge_records__created_at__range=(start_date, end_date)))
-        ).order_by('-total_recharge')[:10]
-        
         return {
-            'summary': summary,
-            'daily_recharge': daily_recharge,
-            'payment_stats': payment_stats,
-            'top_members': top_members
+            'summary': {
+                'total_recharge_amount': 0,
+                'total_recharge_count': 0,
+                'total_actual_amount': 0,
+                'avg_recharge_amount': 0,
+                'recharged_member_count': 0
+            },
+            'daily_recharge': [],
+            'payment_stats': [],
+            'top_members': []
         }
-    
+
     @staticmethod
     def get_operation_logs(start_date=None, end_date=None):
         """

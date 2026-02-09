@@ -1,7 +1,7 @@
 from django import forms
 from django.core.exceptions import ValidationError
 
-from inventory.models import Sale, SaleItem, Product, Member
+from inventory.models import Sale, SaleItem, Product
 from inventory.models.inventory import check_inventory
 
 

@@ -1,26 +1,26 @@
-# 导入会员相关视图
-from .member import (
-    member_search_by_phone,
-    member_list,
-    member_detail,
-    member_create,
-    member_update,
-    member_delete,
-    member_edit,  # 别名函数，保持兼容性
-    member_details,  # 别名函数，保持兼容性
-    member_add_ajax,
-    member_level_list,
-    member_level_create,
-    member_level_update,
-    member_level_edit,  # 别名函数，保持兼容性
-    member_level_delete,
-    member_import,
-    member_export,
-    member_points_adjust,
-    member_recharge,
-    member_recharge_records,
-    member_balance_adjust
-)
+# 会员相关视图（已禁用）
+# from .member import (
+#     member_search_by_phone,
+#     member_list,
+#     member_detail,
+#     member_create,
+#     member_update,
+#     member_delete,
+#     member_edit,  # 别名函数，保持兼容性
+#     member_details,  # 别名函数，保持兼容性
+#     member_add_ajax,
+#     member_level_list,
+#     member_level_create,
+#     member_level_update,
+#     member_level_edit,  # 别名函数，保持兼容性
+#     member_level_delete,
+#     member_import,
+#     member_export,
+#     member_points_adjust,
+#     member_recharge,
+#     member_recharge_records,
+#     member_balance_adjust
+# )
 
 # 导入商品相关视图
 from .product import (
@@ -72,11 +72,11 @@ from .inventory import (
     inventory_transaction_create,
 )
 
-# 导入报表相关视图
+# 导入报表相关视图（member_report已禁用）
 from .report import (
     sales_report,
     inventory_report,
-    member_report,
+    # member_report,  # 已禁用
     product_performance_report,
     daily_summary_report,
     custom_report,
@@ -94,7 +94,7 @@ from .system import (
     system_maintenance,
 )
 
-# 导入销售相关视图
+# 导入销售相关视图（member_purchases和birthday_members_report已禁用）
 from .sales import (
     sale_list,
     sale_detail,
@@ -103,8 +103,8 @@ from .sales import (
     sale_complete,
     sale_cancel,
     sale_delete_item,
-    member_purchases,
-    birthday_members_report,
+    # member_purchases,  # 已禁用
+    # birthday_members_report,  # 已禁用
 )
 
 # 通配符导入已移除以避免循环引用

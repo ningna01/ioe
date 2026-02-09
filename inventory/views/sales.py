@@ -14,7 +14,7 @@ from django.conf import settings
 from django.utils.safestring import mark_safe
 from django.urls import reverse
 
-from inventory.models import Sale, SaleItem, Inventory, InventoryTransaction, Member, MemberTransaction, OperationLog, Product, Category, Supplier, MemberLevel
+from inventory.models import Sale, SaleItem, Inventory, InventoryTransaction, OperationLog, Product, Category, Supplier  # Member, MemberTransaction, MemberLevel 已禁用
 from inventory.forms import SaleForm, SaleItemForm
 from inventory.utils.query_utils import paginate_queryset
 
@@ -90,16 +90,16 @@ def sale_detail(request, sale_id):
     items_total = sum(item.subtotal for item in items)
     if items_total > 0 and (sale.total_amount == 0 or abs(sale.total_amount - items_total) > 1):
         print(f"警告: 销售单金额({sale.total_amount})与商品项总和({items_total})不一致，正在修复")
-        # 更新销售单金额
-        discount_rate = Decimal('1.0')
-        if sale.member and sale.member.level and sale.member.level.discount:
-            try:
-                discount_rate = Decimal(str(sale.member.level.discount))
-            except:
-                discount_rate = Decimal('1.0')
-        
-        discount_amount = items_total * (Decimal('1.0') - discount_rate)
-        final_amount = items_total - discount_amount
+        # 会员折扣计算（已禁用）
+        # discount_rate = Decimal('1.0')
+        # if sale.member and sale.member.level and sale.member.level.discount:
+        #     try:
+        #         discount_rate = Decimal(str(sale.member.level.discount))
+        #     except:
+        #         discount_rate = Decimal('1.0')
+        # 
+        # discount_amount = items_total * (Decimal('1.0') - discount_rate)
+        # final_amount = items_total - discount_amount
         
         # 使用原始SQL直接更新数据库
         with connection.cursor() as cursor:
@@ -278,20 +278,20 @@ def sale_create(request):
                 # 如果后端计算有效，优先使用后端计算的金额
                 total_amount = total_amount_calculated
                 
-                # 重新计算折扣和最终金额，只有当有会员时才应用折扣
-                member_id = request.POST.get('member')
+                # 会员折扣获取（已禁用）
                 discount_rate = Decimal('1.0')  # 默认无折扣
-                
-                if member_id:
-                    try:
-                        member = Member.objects.get(id=member_id)
-                        if member.level and member.level.discount is not None:
-                            discount_rate = Decimal(str(member.level.discount))
-                        print(f"会员折扣: 会员ID={member_id}, 折扣率={discount_rate}")
-                    except Member.DoesNotExist:
-                        print(f"找不到ID为{member_id}的会员，不应用折扣")
-                else:
-                    print("无会员信息，不应用折扣")
+                # member_id = request.POST.get('member')
+                # 
+                # if member_id:
+                #     try:
+                #         member = Member.objects.get(id=member_id)
+                #         if member.level and member.level.discount is not None:
+                #             discount_rate = Decimal(str(member.level.discount))
+                #         print(f"会员折扣: 会员ID={member_id}, 折扣率={discount_rate}")
+                #     except Member.DoesNotExist:
+                #         print(f"找不到ID为{member_id}的会员，不应用折扣")
+                # else:
+                #     print("无会员信息，不应用折扣")
                 
                 discount_amount = total_amount * (Decimal('1.0') - discount_rate)
                 final_amount = total_amount - discount_amount
@@ -364,20 +364,20 @@ def sale_create(request):
             sale.discount_amount = discount_amount
             sale.final_amount = final_amount
             
-            # 处理会员关联
-            member_id = request.POST.get('member')
-            if member_id:
-                try:
-                    member = Member.objects.get(id=member_id)
-                    sale.member = member
-                except Member.DoesNotExist:
-                    pass
+            # 处理会员关联（已禁用）
+            # member_id = request.POST.get('member')
+            # if member_id:
+            #     try:
+            #         member = Member.objects.get(id=member_id)
+            #         sale.member = member
+            #     except Member.DoesNotExist:
+            #         pass
             
             # 设置支付方式
             sale.payment_method = request.POST.get('payment_method', 'cash')
             
-            # 设置积分（实付金额的整数部分）
-            sale.points_earned = int(sale.final_amount) if sale.final_amount is not None else 0
+            # 设置积分（已禁用：实付金额的整数部分）
+            # sale.points_earned = int(sale.final_amount) if sale.final_amount is not None else 0
             
             # 保存销售单基本信息
             sale.save()
@@ -445,12 +445,12 @@ def sale_create(request):
                             related_content_type=ContentType.objects.get_for_model(Sale)
                         )
                     
-                    # 如果有会员，更新会员积分和消费记录
-                    if sale.member:
-                        sale.member.points += sale.points_earned
-                        sale.member.purchase_count += 1
-                        sale.member.total_spend += sale.final_amount
-                        sale.member.save()
+                    # 如果有会员，更新会员积分和消费记录（已禁用）
+                    # if sale.member:
+                    #     sale.member.points += sale.points_earned
+                    #     sale.member.purchase_count += 1
+                    #     sale.member.total_spend += sale.final_amount
+                    #     sale.member.save()
                     
                     # 记录完成销售操作日志
                     OperationLog.objects.create(
@@ -499,9 +499,9 @@ def sale_create(request):
     else:
         form = SaleForm()
     
-    # 获取会员等级列表，用于添加会员模态框
-    from inventory.models import MemberLevel
-    member_levels = MemberLevel.objects.all()
+    # 获取会员等级列表（已禁用）
+    # from inventory.models import MemberLevel
+    # member_levels = MemberLevel.objects.all()
     
     return render(request, 'inventory/sale_form.html', {
         'form': form,
@@ -576,67 +576,67 @@ def sale_complete(request, sale_id):
             # 更新总金额（防止异常情况）
             sale.update_total_amount()
             
-            # 处理会员折扣
-            member_id = request.POST.get('member')
-            if member_id:
-                try:
-                    member = Member.objects.get(id=member_id)
-                    sale.member = member
-                    
-                    # 应用会员折扣率
-                    discount_rate = Decimal('1.0')  # 默认无折扣
-                    if member.level and member.level.discount is not None:
-                        try:
-                            discount_rate = Decimal(str(member.level.discount))
-                        except (ValueError, InvalidOperation, TypeError):
-                            # 如果折扣率无效，使用默认值
-                            discount_rate = Decimal('1.0')
-                    
-                    sale.discount_amount = sale.total_amount * (1 - discount_rate)
-                    sale.final_amount = sale.total_amount - sale.discount_amount
-                    
-                    # 计算获得积分 (实付金额的整数部分)
-                    sale.points_earned = int(sale.final_amount)
-                    
-                    # 更新会员积分和消费记录
-                    member.points += sale.points_earned
-                    member.purchase_count += 1
-                    member.total_spend += sale.final_amount
-                    member.save()
-                except Member.DoesNotExist:
-                    pass
+            # 处理会员折扣（已禁用）
+            # member_id = request.POST.get('member')
+            # if member_id:
+            #     try:
+            #         member = Member.objects.get(id=member_id)
+            #         sale.member = member
+            # 
+            #         # 应用会员折扣率
+            #         discount_rate = Decimal('1.0')  # 默认无折扣
+            #         if member.level and member.level.discount is not None:
+            #             try:
+            #                 discount_rate = Decimal(str(member.level.discount))
+            #             except (ValueError, InvalidOperation, TypeError):
+            #                 # 如果折扣率无效，使用默认值
+            #                 discount_rate = Decimal('1.0')
+            # 
+            #         sale.discount_amount = sale.total_amount * (1 - discount_rate)
+            #         sale.final_amount = sale.total_amount - sale.discount_amount
+            # 
+            #         # 计算获得积分 (实付金额的整数部分)
+            #         sale.points_earned = int(sale.final_amount)
+            # 
+            #         # 更新会员积分和消费记录
+            #         member.points += sale.points_earned
+            #         member.purchase_count += 1
+            #         member.total_spend += sale.final_amount
+            #         member.save()
+            #     except Member.DoesNotExist:
+            #         pass
             
             # 设置支付方式
             payment_method = request.POST.get('payment_method')
             if payment_method:
                 sale.payment_method = payment_method
                 
-                # 如果使用余额支付，处理会员余额
-                if payment_method == 'balance' and sale.member:
-                    if sale.member.balance >= sale.final_amount:
-                        sale.member.balance -= sale.final_amount
-                        sale.member.save()
-                        sale.balance_paid = sale.final_amount
-                    else:
-                        messages.error(request, '会员余额不足')
-                        return redirect('sale_complete', sale_id=sale.id)
-                
-                # 如果是混合支付，处理余额部分
-                elif payment_method == 'mixed' and sale.member:
-                    balance_amount = request.POST.get('balance_amount', 0)
-                    try:
-                        balance_amount = Decimal(balance_amount)
-                    except (ValueError, TypeError, InvalidOperation):
-                        balance_amount = Decimal('0')
-                        
-                    if balance_amount > 0:
-                        if sale.member.balance >= balance_amount:
-                            sale.member.balance -= balance_amount
-                            sale.member.save()
-                            sale.balance_paid = balance_amount
-                        else:
-                            messages.error(request, '会员余额不足')
-                            return redirect('sale_complete', sale_id=sale.id)
+                # 余额支付处理（已禁用）
+                # if payment_method == 'balance' and sale.member:
+                #     if sale.member.balance >= sale.final_amount:
+                #         sale.member.balance -= sale.final_amount
+                #         sale.member.save()
+                #         sale.balance_paid = sale.final_amount
+                #     else:
+                #         messages.error(request, '会员余额不足')
+                #         return redirect('sale_complete', sale_id=sale.id)
+                # 
+                # # 如果是混合支付，处理余额部分（已禁用）
+                # elif payment_method == 'mixed' and sale.member:
+                #     balance_amount = request.POST.get('balance_amount', 0)
+                #     try:
+                #         balance_amount = Decimal(balance_amount)
+                #     except (ValueError, TypeError, InvalidOperation):
+                #         balance_amount = Decimal('0')
+                #         
+                #     if balance_amount > 0:
+                #         if sale.member.balance >= balance_amount:
+                #             sale.member.balance -= balance_amount
+                #             sale.member.save()
+                #             sale.balance_paid = balance_amount
+                #         else:
+                #             messages.error(request, '会员余额不足')
+                #             return redirect('sale_complete', sale_id=sale.id)
             
             sale.save()
             
@@ -748,137 +748,137 @@ def sale_delete_item(request, sale_id, item_id):
     messages.success(request, '商品已从销售单中删除')
     return redirect('sale_item_create', sale_id=sale.id)
 
-@login_required
-def member_purchases(request):
-    """会员购买历史报表"""
-    # 获取查询参数
-    member_id = request.GET.get('member_id')
-    start_date = request.GET.get('start_date')
-    end_date = request.GET.get('end_date')
-    
-    # 初始查询集
-    sales = Sale.objects.filter(member__isnull=False)
-    member = None
-    
-    # 应用筛选
-    if member_id:
-        try:
-            member = Member.objects.get(pk=member_id)
-            sales = sales.filter(member=member)
-        except (Member.DoesNotExist, ValueError):
-            messages.error(request, '无效的会员ID')
-    
-    # 日期筛选
-    if start_date:
-        try:
-            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-            sales = sales.filter(created_at__date__gte=start_date_obj)
-        except ValueError:
-            messages.error(request, '开始日期格式无效')
-    
-    if end_date:
-        try:
-            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-            sales = sales.filter(created_at__date__lte=end_date_obj)
-        except ValueError:
-            messages.error(request, '结束日期格式无效')
-    
-    # 按会员分组统计
-    if not member_id:
-        member_stats = sales.values(
-            'member__id', 'member__name', 'member__phone'
-        ).annotate(
-            total_amount=Sum('total_amount'),
-            total_sales=Count('id'),
-            avg_amount=Avg('total_amount'),
-            last_purchase=Max('created_at')
-        ).order_by('-total_amount')
-        
-        context = {
-            'member_stats': member_stats,
-            'start_date': start_date,
-            'end_date': end_date
-        }
-        return render(request, 'inventory/member_purchases.html', context)
-    
-    # 会员详细信息
-    sales = sales.order_by('-created_at')
-    
-    context = {
-        'member': member,
-        'sales': sales,
-        'start_date': start_date,
-        'end_date': end_date,
-        'total_amount': sales.aggregate(total=Sum('total_amount'))['total'] or 0
-    }
-    
-    return render(request, 'inventory/member_purchase_details.html', context)
+# @login_required
+# def member_purchases(request):
+#     """会员购买历史报表"""
+#     # 获取查询参数
+#     member_id = request.GET.get('member_id')
+#     start_date = request.GET.get('start_date')
+#     end_date = request.GET.get('end_date')
+#     
+#     # 初始查询集
+#     sales = Sale.objects.filter(member__isnull=False)
+#     member = None
+#     
+#     # 应用筛选
+#     if member_id:
+#         try:
+#             member = Member.objects.get(pk=member_id)
+#             sales = sales.filter(member=member)
+#         except (Member.DoesNotExist, ValueError):
+#             messages.error(request, '无效的会员ID')
+#     
+#     # 日期筛选
+#     if start_date:
+#         try:
+#             start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+#             sales = sales.filter(created_at__date__gte=start_date_obj)
+#         except ValueError:
+#             messages.error(request, '开始日期格式无效')
+#     
+#     if end_date:
+#         try:
+#             end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+#             sales = sales.filter(created_at__date__lte=end_date_obj)
+#         except ValueError:
+#             messages.error(request, '结束日期格式无效')
+#     
+#     # 按会员分组统计
+#     if not member_id:
+#         member_stats = sales.values(
+#             'member__id', 'member__name', 'member__phone'
+#         ).annotate(
+#             total_amount=Sum('total_amount'),
+#             total_sales=Count('id'),
+#             avg_amount=Avg('total_amount'),
+#             last_purchase=Max('created_at')
+#         ).order_by('-total_amount')
+#         
+#         context = {
+#             'member_stats': member_stats,
+#             'start_date': start_date,
+#             'end_date': end_date
+#         }
+#         return render(request, 'inventory/member_purchases.html', context)
+#     
+#     # 会员详细信息
+#     sales = sales.order_by('-created_at')
+#     
+#     context = {
+#         'member': member,
+#         'sales': sales,
+#         'start_date': start_date,
+#         'end_date': end_date,
+#         'total_amount': sales.aggregate(total=Sum('total_amount'))['total'] or 0
+#     }
+#     
+#     return render(request, 'inventory/member_purchase_details.html', context)
 
-@login_required
-def birthday_members_report(request):
-    """生日会员报表"""
-    # 获取查询参数
-    month = request.GET.get('month')
-    
-    # 默认显示当月
-    if not month:
-        month = timezone.now().month
-    else:
-        try:
-            month = int(month)
-            if month < 1 or month > 12:
-                month = timezone.now().month
-        except ValueError:
-            month = timezone.now().month
-    
-    # 获取指定月份的生日会员
-    members = Member.objects.filter(
-        birthday__isnull=False,  # 确保生日字段不为空
-        birthday__month=month,
-        is_active=True
-    ).order_by('birthday__day')
-    
-    # 计算各项统计数据
-    total_members = members.count()
-    
-    # 即将到来的生日会员(7天内)
-    today = timezone.now().date()
-    upcoming_birthdays = []
-    
-    for member in members:
-        if member.birthday:
-            # 计算今年的生日日期
-            current_year = today.year
-            birthday_this_year = date(current_year, member.birthday.month, member.birthday.day)
-            
-            # 如果今年的生日已经过了，计算明年的生日
-            if birthday_this_year < today:
-                birthday_this_year = date(current_year + 1, member.birthday.month, member.birthday.day)
-            
-            # 计算距离生日还有多少天
-            days_until_birthday = (birthday_this_year - today).days
-            
-            # 如果在7天内
-            if 0 <= days_until_birthday <= 7:
-                upcoming_birthdays.append({
-                    'member': member,
-                    'days_until_birthday': days_until_birthday,
-                    'birthday_date': birthday_this_year
-                })
-    
-    # 按距离生日天数排序
-    upcoming_birthdays.sort(key=lambda x: x['days_until_birthday'])
-    
-    context = {
-        'members': members,
-        'total_members': total_members,
-        'month': month,
-        'month_name': {
-            1: '一月', 2: '二月', 3: '三月', 4: '四月',
-            5: '五月', 6: '六月', 7: '七月', 8: '八月',
-            9: '九月', 10: '十月', 11: '十一月', 12: '十二月'
-        }[month],
-        'upcoming_birthdays': upcoming_birthdays
-    }
-
-    return render(request, 'inventory/birthday_members_report.html', context)
+# @login_required
+# def birthday_members_report(request):
+#     """生日会员报表"""
+#     # 获取查询参数
+#     month = request.GET.get('month')
+#     
+#     # 默认显示当月
+#     if not month:
+#         month = timezone.now().month
+#     else:
+#         try:
+#             month = int(month)
+#             if month < 1 or month > 12:
+#                 month = timezone.now().month
+#         except ValueError:
+#             month = timezone.now().month
+#     
+#     # 获取指定月份的生日会员
+#     members = Member.objects.filter(
+#         birthday__isnull=False,  # 确保生日字段不为空
+#         birthday__month=month,
+#         is_active=True
+#     ).order_by('birthday__day')
+#     
+#     # 计算各项统计数据
+#     total_members = members.count()
+#     
+#     # 即将到来的生日会员(7天内)
+#     today = timezone.now().date()
+#     upcoming_birthdays = []
+#     
+#     for member in members:
+#         if member.birthday:
+#             # 计算今年的生日日期
+#             current_year = today.year
+#             birthday_this_year = date(current_year, member.birthday.month, member.birthday.day)
+#             
+#             # 如果今年的生日已经过了，计算明年的生日
+#             if birthday_this_year < today:
+#                 birthday_this_year = date(current_year + 1, member.birthday.month, member.birthday.day)
+#             
+#             # 计算距离生日还有多少天
+#             days_until_birthday = (birthday_this_year - today).days
+#             
+#             # 如果在7天内
+#             if 0 <= days_until_birthday <= 7:
+#                 upcoming_birthdays.append({
+#                     'member': member,
+#                     'days_until_birthday': days_until_birthday,
+#                     'birthday_date': birthday_this_year
+#                 })
+#     
+#     # 按距离生日天数排序
+#     upcoming_birthdays.sort(key=lambda x: x['days_until_birthday'])
+#     
+#     context = {
+#         'members': members,
+#         'total_members': total_members,
+#         'month': month,
+#         'month_name': {
+#             1: '一月', 2: '二月', 3: '三月', 4: '四月',
+#             5: '五月', 6: '六月', 7: '七月', 8: '八月',
+#             9: '九月', 10: '十月', 11: '十一月', 12: '十二月'
+#         }[month],
+#         'upcoming_birthdays': upcoming_birthdays
+#     }
+# 
+#     return render(request, 'inventory/birthday_members_report.html', context)

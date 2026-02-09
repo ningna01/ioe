@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 
 from .product import Product
-from .member import Member
+# from .member import Member
 
 
 class Sale(models.Model):
@@ -19,7 +19,9 @@ class Sale(models.Model):
         ('other', '其他')
     ]
     
-    member = models.ForeignKey(Member, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='会员')
+    # 注意：会员系统已移除，此字段保留历史数据但不再使用
+    # 将ForeignKey改为IntegerField以保留member_id历史数据
+    member_id = models.IntegerField(null=True, blank=True, verbose_name='会员ID', default=None)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='总金额')
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='折扣金额')
     final_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='实付金额')

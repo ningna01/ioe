@@ -17,7 +17,7 @@ import io
 
 from inventory.models import (
     Product, Category, Inventory, InventoryTransaction,
-    Sale, SaleItem, Member, MemberTransaction, Store
+    Sale, SaleItem, Store  # Member, MemberTransaction 已禁用
 )
 from inventory.services.report_service import ReportService
 from inventory.utils.date_utils import get_date_range
@@ -144,48 +144,48 @@ def inventory_report(request):
     })
 
 
-@login_required
-@permission_required('inventory.view_reports', raise_exception=True)
-def member_report(request):
-    """会员报表视图"""
-    form = ReportFilterForm(request.GET or None)
-    
-    start_date = timezone.now().date() - datetime.timedelta(days=30)
-    end_date = timezone.now().date()
-    
-    if form.is_valid():
-        start_date = form.cleaned_data.get('start_date') or start_date
-        end_date = form.cleaned_data.get('end_date') or end_date
-    
-    # 获取会员数据
-    member_data = report_service.get_member_data(start_date, end_date)
-    
-    # 获取会员消费趋势
-    member_trend = report_service.get_member_trend(start_date, end_date)
-    
-    # 获取会员等级分布
-    level_distribution = report_service.get_member_level_distribution()
-    
-    # 如果请求导出
-    if 'export' in request.GET:
-        export_format = request.GET.get('export_format', 'excel')
-        
-        if export_format == 'excel':
-            return report_service.export_member_report_excel(member_data, start_date, end_date)
-        elif export_format == 'csv':
-            return report_service.export_member_report_csv(member_data, start_date, end_date)
-    
-    # 渲染正常报表页面
-    return render(request, 'inventory/reports/member_report.html', {
-        'form': form,
-        'member_data': member_data,
-        'member_trend': member_trend,
-        'level_distribution': level_distribution,
-        'start_date': start_date,
-        'end_date': end_date,
-        'total_members': len(member_data),
-        'total_consumption': sum(member['total_consumption'] for member in member_data),
-    })
+# @login_required
+# @permission_required('inventory.view_reports', raise_exception=True)
+# def member_report(request):
+#     """会员报表视图"""
+#     form = ReportFilterForm(request.GET or None)
+#     
+#     start_date = timezone.now().date() - datetime.timedelta(days=30)
+#     end_date = timezone.now().date()
+#     
+#     if form.is_valid():
+#         start_date = form.cleaned_data.get('start_date') or start_date
+#         end_date = form.cleaned_data.get('end_date') or end_date
+#     
+#     # 获取会员数据
+#     member_data = report_service.get_member_data(start_date, end_date)
+#     
+#     # 获取会员消费趋势
+#     member_trend = report_service.get_member_trend(start_date, end_date)
+#     
+#     # 获取会员等级分布
+#     level_distribution = report_service.get_member_level_distribution()
+#     
+#     # 如果请求导出
+#     if 'export' in request.GET:
+#         export_format = request.GET.get('export_format', 'excel')
+#         
+#         if export_format == 'excel':
+#             return report_service.export_member_report_excel(member_data, start_date, end_date)
+#         elif export_format == 'csv':
+#             return report_service.export_member_report_csv(member_data, start_date, end_date)
+#     
+#     # 渲染正常报表页面
+#     return render(request, 'inventory/reports/member_report.html', {
+#         'form': form,
+#         'member_data': member_data,
+#         'member_trend': member_trend,
+#         'level_distribution': level_distribution,
+#         'start_date': start_date,
+#         'end_date': end_date,
+#         'total_members': len(member_data),
+#         'total_consumption': sum(member['total_consumption'] for member in member_data),
+#     })
 
 
 @login_required

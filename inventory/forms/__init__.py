@@ -4,7 +4,7 @@ from .product_forms import (
     ProductImageFormSet, ProductBulkForm, ProductImportForm
 )
 from .inventory_check_forms import InventoryCheckForm, InventoryCheckItemForm, InventoryCheckApproveForm
-from .member_forms import MemberForm, MemberLevelForm, RechargeForm, MemberImportForm
+# from .member_forms import MemberForm, MemberLevelForm, RechargeForm, MemberImportForm  # 已移除会员表单
 from .inventory_forms import InventoryTransactionForm
 from .sales_forms import SaleForm, SaleItemForm
 from .report_forms import (
@@ -35,8 +35,8 @@ __all__ = [
     # 库存盘点表单
     'InventoryCheckForm', 'InventoryCheckItemForm', 'InventoryCheckApproveForm',
     
-    # 会员表单
-    'MemberForm', 'MemberLevelForm', 'RechargeForm', 'MemberImportForm',
+    # 会员表单 - 已移除
+    # 'MemberForm', 'MemberLevelForm', 'RechargeForm', 'MemberImportForm',
     
     # 库存管理表单
     'InventoryTransactionForm',

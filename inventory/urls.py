@@ -28,8 +28,7 @@ from . import views_inventory_check
 from . import views_system
 from . import views_report
 
-# 导入重构后的视图模块
-from .views import member as member_views
+# 导入重构后的视图模块（member_views已禁用，删除）
 from .views import barcode as barcode_views
 from .views import core as core_views
 from .views import sales as sales_views
@@ -66,27 +65,27 @@ urlpatterns = [
     path('accounts/login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
     path('accounts/logout/', auth_views.LogoutView.as_view(next_page='accounts/login/'), name='logout'),
     
-    # 会员管理URL - 使用新的会员视图模块
-    path('members/', member_views.member_list, name='member_list'),
-    path('members/create/', member_views.member_create, name='member_create'),
-    path('members/<int:pk>/edit/', member_views.member_update, name='member_edit'),
-    path('members/<int:pk>/', member_views.member_detail, name='member_detail'),
-    path('members/<int:pk>/delete/', member_views.member_delete, name='member_delete'),
-    path('members/<int:pk>/recharge/', member_views.member_recharge, name='member_recharge'),
-    path('members/<int:pk>/recharge-records/', member_views.member_recharge_records, name='member_recharge_records'),
-    path('members/<int:pk>/points-adjust/', member_views.member_points_adjust, name='member_points_adjust'),
-    path('members/<int:pk>/balance-adjust/', member_views.member_balance_adjust, name='member_balance_adjust'),
-    path('members/import/', member_views.member_import, name='member_import'),
-    path('members/export/', member_views.member_export, name='member_export'),
-    path('members/add-ajax/', member_views.member_add_ajax, name='member_add_ajax'),
-    path('members/purchases/', sales_views.member_purchases, name='member_purchases'),
-    path('api/member/search/<str:phone>/', member_views.member_search_by_phone, name='member_search_by_phone'),
-    
-    # 会员等级管理URL - 使用新的会员视图模块
-    path('member-levels/', member_views.member_level_list, name='member_level_list'),
-    path('member-levels/create/', member_views.member_level_create, name='member_level_create'),
-    path('member-levels/<int:pk>/edit/', member_views.member_level_update, name='member_level_edit'),
-    path('member-levels/<int:pk>/delete/', member_views.member_level_delete, name='member_level_delete'),
+    # 会员管理URL - 使用新的会员视图模块（已禁用）
+    # path('members/', member_views.member_list, name='member_list'),
+    # path('members/create/', member_views.member_create, name='member_create'),
+    # path('members/<int:pk>/edit/', member_views.member_update, name='member_edit'),
+    # path('members/<int:pk>/', member_views.member_detail, name='member_detail'),
+    # path('members/<int:pk>/delete/', member_views.member_delete, name='member_delete'),
+    # path('members/<int:pk>/recharge/', member_views.member_recharge, name='member_recharge'),
+    # path('members/<int:pk>/recharge-records/', member_views.member_recharge_records, name='member_recharge_records'),
+    # path('members/<int:pk>/points-adjust/', member_views.member_points_adjust, name='member_points_adjust'),
+    # path('members/<int:pk>/balance-adjust/', member_views.member_balance_adjust, name='member_balance_adjust'),
+    # path('members/import/', member_views.member_import, name='member_import'),
+    # path('members/export/', member_views.member_export, name='member_export'),
+    # path('members/add-ajax/', member_views.member_add_ajax, name='member_add_ajax'),
+    # path('members/purchases/', sales_views.member_purchases, name='member_purchases'),
+    # path('api/member/search/<str:phone>/', member_views.member_search_by_phone, name='member_search_by_phone'),
+    # 
+    # 会员等级管理URL - 使用新的会员视图模块（已禁用）
+    # path('member-levels/', member_views.member_level_list, name='member_level_list'),
+    # path('member-levels/create/', member_views.member_level_create, name='member_level_create'),
+    # path('member-levels/<int:pk>/edit/', member_views.member_level_update, name='member_level_edit'),
+    # path('member-levels/<int:pk>/delete/', member_views.member_level_delete, name='member_level_delete'),
     
     # 分类管理URL
     path('categories/', views_category.category_list, name='category_list'),
@@ -104,16 +103,16 @@ urlpatterns = [
     path('inventory-checks/<int:check_id>/cancel/', views_inventory_check.inventory_check_cancel, name='inventory_check_cancel'),
     path('inventory-checks/<int:check_id>/items/<int:item_id>/', views_inventory_check.inventory_check_item_update, name='inventory_check_item_update'),
     
-    # 报表URL
+    # 报表URL（会员相关报表已禁用）
     path('reports/', core_views.reports_index, name='reports_index'),
     path('reports/index/', views_report.report_index, name='report_index'),
     path('reports/sales-trend/', views_report.sales_trend_report, name='sales_trend_report'),
     path('reports/top-products/', views_report.top_products_report, name='top_products_report'),
     path('reports/inventory-turnover/', views_report.inventory_turnover_report, name='inventory_turnover_report'),
     path('reports/profit/', views_report.profit_report, name='profit_report'),
-    path('reports/member-analysis/', views_report.member_analysis_report, name='member_analysis_report'),
-    path('reports/birthday-members/', sales_views.birthday_members_report, name='birthday_members_report'),
-    path('reports/recharge/', views_report.recharge_report, name='recharge_report'),
+    # path('reports/member-analysis/', views_report.member_analysis_report, name='member_analysis_report'),  # 已禁用
+    # path('reports/birthday-members/', sales_views.birthday_members_report, name='birthday_members_report'),  # 已禁用
+    # path('reports/recharge/', views_report.recharge_report, name='recharge_report'),  # 已禁用
     path('reports/operation-logs/', views_report.operation_log_report, name='operation_log_report'),
     
     # 销售明细路径

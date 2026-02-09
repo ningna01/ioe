@@ -10,9 +10,9 @@ from inventory.forms.inventory_check_forms import (
     InventoryCheckForm, InventoryCheckItemForm, InventoryCheckApproveForm
 )
 
-from inventory.forms.member_forms import (
-    MemberForm, MemberLevelForm, RechargeForm
-)
+# from inventory.forms.member_forms import (
+#     MemberForm, MemberLevelForm, RechargeForm
+# )
 
 from inventory.forms.inventory_forms import (
     InventoryTransactionForm

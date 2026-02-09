@@ -15,9 +15,9 @@ from inventory.models.inventory_check import (
     InventoryCheck, InventoryCheckItem
 )
 
-from inventory.models.member import (
-    Member, MemberLevel, RechargeRecord
-)
+# from inventory.models.member import (
+#     Member, MemberLevel, RechargeRecord
+# )
 
 from inventory.models.sales import (
     Sale, SaleItem

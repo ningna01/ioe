@@ -10,7 +10,7 @@ from datetime import timedelta
 
 from inventory.models import (
     Product, Inventory, Sale, SaleItem, 
-    Member, InventoryTransaction, OperationLog
+    InventoryTransaction, OperationLog
 )
 
 
@@ -41,10 +41,10 @@ def index(request):
         total=Sum('total_amount')
     )['total'] or 0
     
-    # 会员统计
-    total_members = Member.objects.count()
-    active_members = total_members
-    new_members_month = Member.objects.filter(created_at__gte=month_ago).count()
+    # 会员统计（已禁用）
+    # total_members = Member.objects.count()
+    # active_members = total_members
+    # new_members_month = Member.objects.filter(created_at__gte=month_ago).count()
     
     # 近期销售走势
     sales_trend = []
@@ -72,13 +72,13 @@ def index(request):
     # 最近操作日志
     recent_logs = OperationLog.objects.all().order_by('-timestamp')[:10]
     
-    # 获取当月生日会员
-    current_month = today.month
-    birthday_members = Member.objects.filter(
-        birthday__isnull=False,  # 确保生日字段不为空
-        birthday__month=current_month,
-        is_active=True
-    ).order_by('birthday__day')[:10]
+    # 获取当月生日会员（已禁用）
+    # current_month = today.month
+    # birthday_members = Member.objects.filter(
+    #     birthday__isnull=False,  # 确保生日字段不为空
+    #     birthday__month=current_month,
+    #     is_active=True
+    # ).order_by('birthday__day')[:10]
     
     context = {
         'total_products': total_products,
@@ -90,14 +90,15 @@ def index(request):
         'today_sales_amount': today_sales_amount,
         'yesterday_sales': yesterday_sales,
         'yesterday_sales_amount': yesterday_sales_amount,
-        'total_members': total_members,
-        'active_members': active_members,
-        'new_members_month': new_members_month,
+        # 会员统计（已禁用）
+        # 'total_members': total_members,
+        # 'active_members': active_members,
+        # 'new_members_month': new_members_month,
         'sales_trend': sales_trend,
         'top_products': top_products,
         'recent_logs': recent_logs,
-        'birthday_members': birthday_members,
-        'current_month': current_month,
+        # 'birthday_members': birthday_members,
+        # 'current_month': current_month,
     }
     
     return render(request, 'inventory/index.html', context)

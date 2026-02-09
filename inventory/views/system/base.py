@@ -78,8 +78,8 @@ def system_info(request):
         cursor.execute("SELECT COUNT(*) FROM inventory_sale")
         db_stats['sale_count'] = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM inventory_member")
-        db_stats['member_count'] = cursor.fetchone()[0]
+        # cursor.execute("SELECT COUNT(*) FROM inventory_member")
+        # db_stats['member_count'] = cursor.fetchone()[0]
     
     # 目录和文件大小
     media_size = 0
