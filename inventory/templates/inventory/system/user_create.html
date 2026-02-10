@@ -19,7 +19,7 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3 mb-0">创建新用户</h1>
         <a href="{% url 'user_list' %}" class="btn btn-outline-secondary">
-            <i class="fas fa-arrow-left me-1"></i> 返回用户列表
+            <i class="bi bi-arrow-left me-1"></i> 返回用户列表
         </a>
     </div>
     
@@ -92,8 +92,17 @@
                         <div class="mb-3">
                             <label class="form-label">仓库授权</label>
                             <div class="alert alert-info py-2">
-                                <i class="fas fa-info-circle me-1"></i> 普通用户仅可访问已授权仓库的数据；如已选择仓库，必须指定一个默认仓库。
+                                <i class="bi bi-info-circle me-1"></i> 普通用户仅可访问已授权仓库的数据；如已选择仓库，必须指定一个默认仓库。
                             </div>
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="applyWarehouseManagerTemplate">
+                                    <i class="bi bi-shield-check me-1"></i> 应用分仓管理员模板
+                                </button>
+                                <button type="button" class="btn btn-outline-success btn-sm" id="applyWarehouseCashierTemplate">
+                                    <i class="bi bi-cart-check me-1"></i> 应用收银员模板
+                                </button>
+                            </div>
+                            <div class="form-text mb-2">模板会应用到当前已选中的仓库。</div>
                             {% if warehouses %}
                             <div class="row">
                                 {% for warehouse in warehouses %}
@@ -116,13 +125,34 @@
                                                 设为默认仓库
                                             </label>
                                         </div>
+                                        <div class="mt-2 pt-2 border-top" data-warehouse-permissions="{{ warehouse.id }}">
+                                            <div class="small text-muted mb-1">仓库权限位</div>
+                                            <div class="row g-1">
+                                                {% for permission in warehouse_permission_choices %}
+                                                <div class="col-6">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input warehouse-permission-checkbox"
+                                                               type="checkbox"
+                                                               name="warehouse_permissions_{{ warehouse.id }}"
+                                                               id="warehouse_{{ warehouse.id }}_permission_{{ permission.code }}"
+                                                               value="{{ permission.code }}"
+                                                               {% if permission.code in warehouse.selected_permission_codes %}checked{% endif %}
+                                                               {% if not warehouse.selected_for_user %}disabled{% endif %}>
+                                                        <label class="form-check-label small" for="warehouse_{{ warehouse.id }}_permission_{{ permission.code }}" title="{{ permission.description }}">
+                                                            {{ permission.label }}
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 {% endfor %}
                             </div>
                             {% else %}
                             <div class="alert alert-warning mb-0">
-                                <i class="fas fa-exclamation-triangle me-1"></i> 当前没有可用仓库，请先在仓库管理中创建并启用仓库。
+                                <i class="bi bi-exclamation-triangle me-1"></i> 当前没有可用仓库，请先在仓库管理中创建并启用仓库。
                             </div>
                             {% endif %}
                         </div>
@@ -161,7 +191,7 @@
                         <!-- 提交按钮 -->
                         <div class="text-end">
                             <button type="submit" class="btn btn-primary">
-                                <i class="fas fa-save me-1"></i> 创建用户
+                                <i class="bi bi-save me-1"></i> 创建用户
                             </button>
                         </div>
                     </form>
@@ -172,31 +202,48 @@
         <div class="col-lg-4">
             <div class="card mb-4">
                 <div class="card-header bg-primary text-white">
-                    <h5 class="card-title mb-0">快速创建销售员</h5>
+                    <h5 class="card-title mb-0">快速角色设置</h5>
                 </div>
                 <div class="card-body">
-                    <p class="mb-3">
-                        创建一个只能访问销售相关功能的销售员账号，适合前台收银和客户服务人员使用。
-                    </p>
-                    <button type="button" class="btn btn-success w-100" id="createSalesBtn">
-                        <i class="fas fa-user-tag me-1"></i> 快速创建销售员账号
-                    </button>
+                    <p class="mb-3">点击后会自动勾选用户组，并同步关键账户状态。</p>
+                    <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-outline-success w-100 quick-role-btn" data-role-name="销售员" data-superuser="false" data-warehouse-template="cashier">
+                            <i class="bi bi-cart me-1"></i> 设为收银员（销售员）
+                        </button>
+                        <button type="button" class="btn btn-outline-primary w-100 quick-role-btn" data-role-name="分仓管理员" data-superuser="false" data-warehouse-template="warehouse_manager">
+                            <i class="bi bi-building me-1"></i> 设为分仓管理员
+                        </button>
+                        <button type="button" class="btn btn-outline-danger w-100 quick-role-btn" data-role-name="超级管理员" data-superuser="true">
+                            <i class="bi bi-shield-lock me-1"></i> 设为超级管理员
+                        </button>
+                    </div>
+                    <div class="form-text mt-2">
+                        分仓管理员/收银员模板会作用于当前已选仓库；超级管理员不依赖仓库位权限。
+                    </div>
                 </div>
             </div>
-            
-            <div class="card">
-                <div class="card-header bg-info text-white">
-                    <h5 class="card-title mb-0">帮助信息</h5>
+
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="card-title mb-0">用户组说明</h5>
                 </div>
                 <div class="card-body">
-                    <h6>用户角色说明</h6>
-                    <ul>
-                        <li><strong>销售员</strong>：只能访问销售和会员管理功能</li>
-                        <li><strong>仓库管理员</strong>：可以管理库存和产品</li>
-                        <li><strong>财务人员</strong>：可以查看销售和财务数据</li>
-                        <li><strong>管理员</strong>：可以管理系统的大部分功能</li>
+                    <ul class="mb-0 ps-3">
+                        <li><strong>超级管理员</strong>：全功能访问，包含账号与权限管理。</li>
+                        <li><strong>分仓管理员</strong>：按授权仓管理商品、库存、报表与仓库主数据。</li>
+                        <li><strong>销售员</strong>：销售流程 + 库存列表只读（按授权仓）。</li>
                     </ul>
-                    <p>超级管理员可以访问所有功能，请谨慎分配此权限。</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="card-title mb-0">使用建议</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning mb-0">
+                        <i class="bi bi-exclamation-triangle me-1"></i> 建议先分配用户组，再配置仓库与权限位，最后保存。
+                    </div>
                 </div>
             </div>
         </div>
@@ -204,6 +251,7 @@
 </div>
 
 {% block extra_js %}
+{{ warehouse_role_templates|json_script:"warehouse-role-templates" }}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         // 密码一致性检查
@@ -212,7 +260,15 @@
         const form = document.getElementById('userForm');
         const warehouseCheckboxes = document.querySelectorAll('.warehouse-checkbox');
         const warehouseDefaultRadios = document.querySelectorAll('.warehouse-default-radio');
-        
+        const managerTemplateBtn = document.getElementById('applyWarehouseManagerTemplate');
+        const cashierTemplateBtn = document.getElementById('applyWarehouseCashierTemplate');
+        const roleTemplateNode = document.getElementById('warehouse-role-templates');
+        const warehouseRoleTemplates = roleTemplateNode ? JSON.parse(roleTemplateNode.textContent) : {};
+
+        function getPermissionCheckboxesByWarehouse(warehouseId) {
+            return Array.from(document.querySelectorAll('input[name="warehouse_permissions_' + warehouseId + '"]'));
+        }
+
         form.addEventListener('submit', function(e) {
             if (password.value !== passwordConfirm.value) {
                 e.preventDefault();
@@ -227,11 +283,23 @@
                 if (!selectedDefault) {
                     e.preventDefault();
                     alert('已选择仓库时必须指定默认仓库。');
+                    return;
+                }
+            }
+
+            for (const warehouseCheckbox of checkedWarehouses) {
+                const permissionCheckboxes = getPermissionCheckboxesByWarehouse(warehouseCheckbox.value)
+                    .filter(item => !item.disabled);
+                const hasCheckedPermission = permissionCheckboxes.some(item => item.checked);
+                if (!hasCheckedPermission) {
+                    e.preventDefault();
+                    alert('每个已授权仓库至少需要一个权限位。');
+                    return;
                 }
             }
         });
 
-        function refreshDefaultWarehouseState() {
+        function refreshWarehouseAccessState() {
             warehouseCheckboxes.forEach(checkbox => {
                 const matchedRadio = document.querySelector('.warehouse-default-radio[value="' + checkbox.value + '"]');
                 if (!matchedRadio) {
@@ -240,6 +308,20 @@
                 matchedRadio.disabled = !checkbox.checked;
                 if (!checkbox.checked && matchedRadio.checked) {
                     matchedRadio.checked = false;
+                }
+
+                const permissionCheckboxes = getPermissionCheckboxesByWarehouse(checkbox.value);
+                permissionCheckboxes.forEach(permissionCheckbox => {
+                    permissionCheckbox.disabled = !checkbox.checked;
+                });
+
+                if (checkbox.checked && permissionCheckboxes.length > 0 && !permissionCheckboxes.some(item => item.checked)) {
+                    const viewPermission = permissionCheckboxes.find(item => item.value === 'view');
+                    if (viewPermission) {
+                        viewPermission.checked = true;
+                    } else {
+                        permissionCheckboxes[0].checked = true;
+                    }
                 }
             });
 
@@ -254,7 +336,7 @@
         }
 
         warehouseCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', refreshDefaultWarehouseState);
+            checkbox.addEventListener('change', refreshWarehouseAccessState);
         });
         warehouseDefaultRadios.forEach(radio => {
             radio.addEventListener('change', function() {
@@ -265,46 +347,70 @@
                 if (matchedCheckbox && !matchedCheckbox.checked) {
                     matchedCheckbox.checked = true;
                 }
-                refreshDefaultWarehouseState();
+                refreshWarehouseAccessState();
             });
         });
-        refreshDefaultWarehouseState();
-        
-        // 快速创建销售员按钮
-        const createSalesBtn = document.getElementById('createSalesBtn');
-        if (createSalesBtn) {
-            createSalesBtn.addEventListener('click', function() {
-                // 清除所有选中的用户组
-                document.querySelectorAll('input[name="groups"]').forEach(checkbox => {
-                    checkbox.checked = false;
-                });
-                
-                // 选中销售员组
-                const salesGroupCheckbox = document.querySelector('input[name="groups"][id$="group_' + findSalesGroupId() + '"]');
-                if (salesGroupCheckbox) {
-                    salesGroupCheckbox.checked = true;
+
+        function applyWarehouseTemplate(templateKey) {
+            const templateCodes = warehouseRoleTemplates[templateKey] || [];
+            warehouseCheckboxes.forEach(warehouseCheckbox => {
+                if (!warehouseCheckbox.checked) {
+                    return;
                 }
-                
-                // 设置基本权限
-                document.getElementById('is_active').checked = true;
-                document.getElementById('is_staff').checked = true;
-                document.getElementById('is_superuser').checked = false;
-                
-                // 设置焦点到用户名字段
-                document.getElementById('username').focus();
+                const permissionCheckboxes = getPermissionCheckboxesByWarehouse(warehouseCheckbox.value);
+                permissionCheckboxes.forEach(permissionCheckbox => {
+                    permissionCheckbox.checked = templateCodes.includes(permissionCheckbox.value);
+                });
+            });
+            refreshWarehouseAccessState();
+        }
+
+        if (managerTemplateBtn) {
+            managerTemplateBtn.addEventListener('click', function() {
+                applyWarehouseTemplate('warehouse_manager');
             });
         }
-        
-        // 查找销售员组ID
-        function findSalesGroupId() {
-            const groups = document.querySelectorAll('input[name="groups"]');
-            for (let i = 0; i < groups.length; i++) {
-                const label = groups[i].nextElementSibling;
-                if (label && label.textContent.trim() === '销售员') {
-                    return groups[i].value;
+        if (cashierTemplateBtn) {
+            cashierTemplateBtn.addEventListener('click', function() {
+                applyWarehouseTemplate('cashier');
+            });
+        }
+
+        refreshWarehouseAccessState();
+
+        const quickRoleButtons = document.querySelectorAll('.quick-role-btn');
+        quickRoleButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const roleName = this.dataset.roleName || '';
+                const isSuperuser = this.dataset.superuser === 'true';
+                const warehouseTemplateKey = this.dataset.warehouseTemplate || '';
+
+                setUserRole(roleName, isSuperuser);
+
+                if (warehouseTemplateKey) {
+                    applyWarehouseTemplate(warehouseTemplateKey);
                 }
-            }
-            return '';
+
+                document.getElementById('username').focus();
+            });
+        });
+
+        function setUserRole(roleName, isSuperuser) {
+            const groupCheckboxes = Array.from(document.querySelectorAll('input[name="groups"]'));
+            groupCheckboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+
+            groupCheckboxes.forEach(checkbox => {
+                const label = checkbox.nextElementSibling;
+                if (label && label.textContent.trim() === roleName) {
+                    checkbox.checked = true;
+                }
+            });
+
+            document.getElementById('is_active').checked = true;
+            document.getElementById('is_staff').checked = true;
+            document.getElementById('is_superuser').checked = Boolean(isSuperuser);
         }
     });
 </script>

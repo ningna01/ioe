@@ -18,7 +18,7 @@ from datetime import datetime
 
 from inventory.models import (
     Product, Category, ProductImage, ProductBatch,
-    Inventory, InventoryTransaction, Supplier, OperationLog, update_inventory
+    Inventory, InventoryTransaction, Supplier, OperationLog, UserWarehouseAccess, update_inventory
 )
 from inventory.forms import (
     ProductForm, CategoryForm, ProductBatchForm,
@@ -26,6 +26,15 @@ from inventory.forms import (
 )
 from inventory.utils import generate_thumbnail, validate_csv
 from inventory.services import product_service
+from inventory.services.warehouse_scope_service import WarehouseScopeService
+
+
+def _ensure_product_manage_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=UserWarehouseAccess.PERMISSION_PRODUCT_MANAGE,
+        error_message='您无权访问商品管理模块',
+    )
 
 
 def product_by_barcode(request, barcode):
@@ -89,6 +98,7 @@ def product_by_barcode(request, barcode):
 @login_required
 def product_list(request):
     """商品列表视图"""
+    _ensure_product_manage_access(request.user)
     # 获取筛选参数
     search_query = request.GET.get('search', '')
     category_id = request.GET.get('category', '')
@@ -165,6 +175,7 @@ def product_list(request):
 @login_required
 def product_detail(request, pk):
     """商品详情视图"""
+    _ensure_product_manage_access(request.user)
     product = get_object_or_404(Product, pk=pk)
     
     # 获取商品库存信息
@@ -197,6 +208,7 @@ def product_detail(request, pk):
 @login_required
 def product_create(request):
     """创建商品视图"""
+    _ensure_product_manage_access(request.user)
     if request.method == 'POST':
         form = ProductForm(request.POST)
         image_formset = ProductImageFormSet(request.POST, request.FILES, prefix='images')
@@ -320,6 +332,7 @@ def product_create(request):
 @login_required
 def product_update(request, pk):
     """更新商品视图"""
+    _ensure_product_manage_access(request.user)
     product = get_object_or_404(Product, pk=pk)
     
     if request.method == 'POST':
@@ -403,6 +416,7 @@ def product_update(request, pk):
 @login_required
 def product_delete(request, pk):
     """删除商品视图"""
+    _ensure_product_manage_access(request.user)
     product = get_object_or_404(Product, pk=pk)
     
     if request.method == 'POST':
@@ -425,6 +439,7 @@ def product_delete(request, pk):
 @login_required
 def product_category_list(request):
     """商品分类列表视图"""
+    _ensure_product_manage_access(request.user)
     # 获取筛选参数
     search_query = request.GET.get('search', '')
     status = request.GET.get('status', '')
@@ -465,6 +480,7 @@ def product_category_list(request):
 @login_required
 def product_category_create(request):
     """创建商品分类视图"""
+    _ensure_product_manage_access(request.user)
     if request.method == 'POST':
         form = CategoryForm(request.POST)
         if form.is_valid():
@@ -486,6 +502,7 @@ def product_category_create(request):
 @login_required
 def product_category_update(request, pk):
     """更新商品分类视图"""
+    _ensure_product_manage_access(request.user)
     category = get_object_or_404(Category, pk=pk)
     
     if request.method == 'POST':
@@ -510,6 +527,7 @@ def product_category_update(request, pk):
 @login_required
 def product_category_delete(request, pk):
     """删除商品分类视图"""
+    _ensure_product_manage_access(request.user)
     category = get_object_or_404(Category, pk=pk)
     
     # 检查该分类是否有关联的商品
@@ -544,6 +562,7 @@ def product_category_delete(request, pk):
 @login_required
 def product_batch_create(request, product_id):
     """创建商品批次视图"""
+    _ensure_product_manage_access(request.user)
     product = get_object_or_404(Product, pk=product_id)
     
     if request.method == 'POST':
@@ -579,6 +598,7 @@ def product_batch_create(request, product_id):
 @login_required
 def product_batch_update(request, pk):
     """更新商品批次视图"""
+    _ensure_product_manage_access(request.user)
     batch = get_object_or_404(ProductBatch, pk=pk)
     product = batch.product
     
@@ -605,6 +625,7 @@ def product_batch_update(request, pk):
 @login_required
 def product_bulk_create(request):
     """批量创建商品视图"""
+    _ensure_product_manage_access(request.user)
     if request.method == 'POST':
         form = ProductBulkForm(request.POST)
         if form.is_valid():
@@ -661,6 +682,7 @@ def product_bulk_create(request):
 @login_required
 def product_import(request):
     """导入商品视图"""
+    _ensure_product_manage_access(request.user)
     if request.method == 'POST':
         form = ProductImportForm(request.POST, request.FILES)
         if form.is_valid():
@@ -747,6 +769,7 @@ def product_import(request):
 @login_required
 def product_export(request):
     """导出商品视图"""
+    _ensure_product_manage_access(request.user)
     # 获取筛选参数
     category_id = request.GET.get('category', '')
     status = request.GET.get('status', '')

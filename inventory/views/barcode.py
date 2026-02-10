@@ -12,11 +12,28 @@ from inventory.forms import ProductForm  # 直接从forms包导入需要的表�
 from inventory.ali_barcode_service import AliBarcodeService
 from inventory.services.product_service import search_products
 from inventory.services.stock_scope_service import StockScopeService
+from inventory.services.warehouse_scope_service import WarehouseScopeService
 
 # 外部条码服务API配置（示例用，实际应替换为自己的API密钥）
 BARCODE_API_APP_KEY = "your_app_key"
 BARCODE_API_APP_SECRET = "your_app_secret"
 BARCODE_API_URL = "https://api.example.com/barcode"
+
+
+def _ensure_sale_barcode_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=inventory.models.UserWarehouseAccess.PERMISSION_SALE,
+        error_message='您无权访问销售条码功能',
+    )
+
+
+def _ensure_product_manage_barcode_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=inventory.models.UserWarehouseAccess.PERMISSION_PRODUCT_MANAGE,
+        error_message='您无权访问条码建档功能',
+    )
 
 @login_required
 def barcode_product_create(request):
@@ -25,6 +42,7 @@ def barcode_product_create(request):
     支持GET方式查询条码，POST方式保存商品
     先查询数据库，如果不存在再调用API
     """
+    _ensure_product_manage_barcode_access(request.user)
     barcode = request.GET.get('barcode', '')
     barcode_data = None
     initial_data = {}
@@ -123,6 +141,7 @@ def barcode_lookup(request):
     AJAX接口，用于查询条码信息
     先查询数据库，如果不存在再调用API
     """
+    _ensure_sale_barcode_access(request.user)
     barcode = request.GET.get('barcode', '')
     if not barcode:
         return JsonResponse({'success': False, 'message': '请提供条码'})
@@ -167,10 +186,13 @@ def barcode_lookup(request):
 @login_required
 def barcode_scan(request):
     """条码扫描页面，用于测试条码功能"""
+    _ensure_sale_barcode_access(request.user)
     return render(request, 'inventory/barcode/barcode_scan.html')
 
+@login_required
 def product_by_barcode(request, barcode):
     """根据条码查询商品信息的API"""
+    _ensure_sale_barcode_access(request.user)
     warehouse_ids = StockScopeService.resolve_request_warehouse_ids(request)
     try:
         # 先尝试精确匹配条码
@@ -244,6 +266,7 @@ def product_by_barcode(request, barcode):
 @login_required
 def scan_barcode(request):
     """条码扫描功能视图"""
+    _ensure_sale_barcode_access(request.user)
     if request.method == 'POST':
         barcode_data = request.POST.get('barcode_data')
         
@@ -315,6 +338,7 @@ def scan_barcode(request):
 @login_required
 def get_product_batches(request):
     """获取商品批次的API视图"""
+    _ensure_sale_barcode_access(request.user)
     product_id = request.GET.get('product_id')
     if not product_id:
         return JsonResponse({'error': 'Missing product_id'}, status=400)
@@ -336,29 +360,35 @@ def get_product_batches(request):
 @login_required
 def generate_barcode_view(request, product_id=None):
     """生成商品条码视图 - 功能已停用"""
+    _ensure_product_manage_barcode_access(request.user)
     messages.info(request, "条码生成功能已停用，因为您的商品已有条码。")
     return redirect('product_list')  # 重定向到商品列表页面
 
 @login_required
 def batch_barcode_view(request, batch_id=None):
     """生成批次条码视图 - 功能已停用"""
+    _ensure_product_manage_barcode_access(request.user)
     messages.info(request, "批次条码生成功能已停用，因为您的商品已有条码。")
     return redirect('product_list')  # 重定向到商品列表页面
 
 @login_required
 def bulk_barcode_generation(request):
     """批量生成条码视图 - 功能已停用"""
+    _ensure_product_manage_barcode_access(request.user)
     messages.info(request, "批量条码生成功能已停用，因为您的商品已有条码。")
     return redirect('product_list')  # 重定向到商品列表页面
 
 @login_required
 def barcode_template(request):
     """条码模板设置视图 - 功能已停用"""
+    _ensure_product_manage_barcode_access(request.user)
     messages.info(request, "条码模板设置功能已停用，因为您的商品已有条码。")
     return redirect('product_list')  # 重定向到商品列表页面
 
+@login_required
 def product_search_api(request):
     """通过名称或其他字段搜索商品API"""
+    _ensure_sale_barcode_access(request.user)
     query = request.GET.get('query', '')
     if not query or len(query) < 2:  # 至少2个字符才进行搜索
         return JsonResponse({

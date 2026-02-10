@@ -1,0 +1,100 @@
+{% extends 'inventory/base.html' %}
+
+{% block title %}系统维护{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb bg-white py-2">
+            <li class="breadcrumb-item"><a href="{% url 'index' %}">主页</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'system_settings' %}">系统设置</a></li>
+            <li class="breadcrumb-item active" aria-current="page">系统维护</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">系统维护</h1>
+        <a href="{% url 'system_settings' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>返回系统设置
+        </a>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <p class="text-muted mb-1">磁盘使用率</p>
+                    <h4 class="mb-2">{{ disk_usage_percent }}%</h4>
+                    <div class="progress">
+                        <div class="progress-bar bg-warning" role="progressbar" style="width: {{ disk_usage_percent }}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <p class="text-muted mb-1">内存使用率</p>
+                    <h4 class="mb-2">{{ memory_usage_percent }}%</h4>
+                    <div class="progress">
+                        <div class="progress-bar bg-info" role="progressbar" style="width: {{ memory_usage_percent }}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <p class="text-muted mb-1">日志文件大小</p>
+                    <h4 class="mb-1">{{ log_size_mb }} MB</h4>
+                    <small class="text-muted">
+                        活跃会话 {{ active_sessions }} / 过期会话 {{ expired_sessions }}
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header bg-light"><h5 class="mb-0">清理过期会话</h5></div>
+                <div class="card-body">
+                    <p class="text-muted">删除过期登录会话，释放会话表空间。</p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="operation" value="clear_sessions">
+                        <button type="submit" class="btn btn-outline-primary">执行清理</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header bg-light"><h5 class="mb-0">清理系统日志</h5></div>
+                <div class="card-body">
+                    <p class="text-muted">仅保留最近 10000 行系统日志。</p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="operation" value="clear_logs">
+                        <button type="submit" class="btn btn-outline-warning">执行清理</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header bg-light"><h5 class="mb-0">优化数据库</h5></div>
+                <div class="card-body">
+                    <p class="text-muted">执行数据库优化命令，建议在低峰期进行。</p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="operation" value="optimize_db">
+                        <button type="submit" class="btn btn-outline-danger">执行优化</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

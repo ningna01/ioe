@@ -9,18 +9,28 @@ from django.utils import timezone
 from datetime import timedelta
 
 from inventory.models import (
-    Product, Sale, SaleItem, WarehouseInventory, OperationLog
+    Product, Sale, SaleItem, UserWarehouseAccess, WarehouseInventory, OperationLog
 )
 from inventory.permissions.decorators import permission_required
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 
 
-def _build_dashboard_scope(user, request):
+def _build_dashboard_scope(user, request, required_permission=None):
     warehouse_param = request.GET.get('warehouse', 'all')
     return WarehouseScopeService.resolve_warehouse_selection(
         user=user,
         warehouse_param=warehouse_param,
         include_all_option=True,
+        required_permission=required_permission,
+    )
+
+
+def _ensure_report_module_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=UserWarehouseAccess.PERMISSION_REPORT_VIEW,
+        error_message='您无权访问报表中心',
+        code='warehouse_scope_denied',
     )
 
 
@@ -158,7 +168,12 @@ def index(request):
 @permission_required('view_reports')
 def reports_index(request):
     """报表首页视图"""
-    scope = _build_dashboard_scope(request.user, request)
+    _ensure_report_module_access(request.user)
+    scope = _build_dashboard_scope(
+        request.user,
+        request,
+        required_permission=UserWarehouseAccess.PERMISSION_REPORT_VIEW,
+    )
     return render(request, 'inventory/reports/index.html', {
         'warehouses': scope['warehouses'],
         'selected_warehouse': scope['selected_warehouse_value'],

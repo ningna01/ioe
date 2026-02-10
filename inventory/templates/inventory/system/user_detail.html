@@ -138,13 +138,22 @@
                     {% elif warehouse_accesses %}
                     <ul class="list-group mb-4">
                         {% for access in warehouse_accesses %}
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <span>{{ access.warehouse.name }}</span>
-                            {% if access.is_default %}
-                            <span class="badge bg-primary">默认仓库</span>
-                            {% else %}
-                            <span class="badge bg-secondary">已授权</span>
-                            {% endif %}
+                        <li class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span>{{ access.warehouse.name }}</span>
+                                {% if access.is_default %}
+                                <span class="badge bg-primary">默认仓库</span>
+                                {% else %}
+                                <span class="badge bg-secondary">已授权</span>
+                                {% endif %}
+                            </div>
+                            <div class="mt-2">
+                                {% for permission_label in access.permission_labels %}
+                                <span class="badge bg-light text-dark border me-1 mb-1">{{ permission_label }}</span>
+                                {% empty %}
+                                <span class="text-muted small">未配置权限位</span>
+                                {% endfor %}
+                            </div>
                         </li>
                         {% endfor %}
                     </ul>

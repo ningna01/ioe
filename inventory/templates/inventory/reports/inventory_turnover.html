@@ -4,12 +4,12 @@
 {% block title %}库存周转报表{% endblock %}
 
 {% block extra_head %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% include "inventory/reports/_assets.html" %}
 {% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="row mb-4">
+<div class="container report-page">
+    <div class="row mb-4 report-header">
         <div class="col-md-8">
             <h1 class="h2">库存周转报表</h1>
             <p class="text-muted">
@@ -27,7 +27,7 @@
     <!-- 搜索表单 -->
     <div class="row mb-4">
         <div class="col-md-12">
-            <div class="card">
+            <div class="card report-filter-card">
                 <div class="card-header">
                     <h3 class="h5 mb-0">设置报表参数</h3>
                 </div>
@@ -66,7 +66,7 @@
     <!-- 图表 -->
     <div class="row mb-4">
         <div class="col-md-12">
-            <div class="card">
+            <div class="card report-chart-card">
                 <div class="card-header">
                     <h3 class="h5 mb-0">库存周转率统计图</h3>
                 </div>
@@ -82,7 +82,7 @@
     <!-- 数据表格 -->
     <div class="row">
         <div class="col-md-12">
-            <div class="card">
+            <div class="card report-table-card">
                 <div class="card-header">
                     <h3 class="h5 mb-0">库存周转明细</h3>
                     <small class="text-muted d-block mt-1">
@@ -143,8 +143,6 @@
 {% if inventory_data %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        const ctx = document.getElementById('turnoverChart').getContext('2d');
-        
         // 准备数据
         const labels = [
             {% for item in inventory_data %}
@@ -165,7 +163,7 @@
         ];
         
         // 创建图表
-        const myChart = new Chart(ctx, {
+        ReportCharts.create('turnoverChart', {
             type: 'bar',
             data: {
                 labels: labels,
@@ -173,8 +171,8 @@
                     {
                         label: '周转率',
                         data: turnoverRateData,
-                        backgroundColor: 'rgba(52, 152, 219, 0.6)',
-                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(58, 120, 192, 0.55)',
+                        borderColor: ReportCharts.palette.blue,
                         borderWidth: 1,
                         borderRadius: 4,
                         yAxisID: 'y'
@@ -184,28 +182,18 @@
                         data: turnoverDaysData,
                         type: 'line',
                         fill: false,
-                        borderColor: '#e74c3c',
-                        backgroundColor: 'rgba(231, 76, 60, 0.2)',
+                        borderColor: ReportCharts.palette.orange,
+                        backgroundColor: 'rgba(226, 148, 59, 0.2)',
                         borderWidth: 2,
                         tension: 0.3,
                         pointRadius: 4,
-                        pointBackgroundColor: '#e74c3c',
+                        pointBackgroundColor: ReportCharts.palette.orange,
                         yAxisID: 'y1'
                     }
                 ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: true,
                 aspectRatio: 2.5,
-                layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
-                plugins: {
-                    legend: { position: 'top', align: 'end' }
-                },
-                interaction: {
-                    mode: 'index',
-                    intersect: false
-                },
                 scales: {
                     y: {
                         type: 'linear',

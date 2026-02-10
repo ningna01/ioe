@@ -591,36 +591,55 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
+                    {% if nav_permissions.show_product %}
                     <li class="nav-item">
                         <a class="nav-link {% if request.path == '/product/' %}active{% endif %}" href="{% url 'product_list' %}">
                             <i class="bi bi-box me-1"></i>商品管理
                         </a>
                     </li>
+                    {% endif %}
+                    {% if nav_permissions.show_category %}
                     <li class="nav-item">
                         <a class="nav-link {% if '/categories/' in request.path %}active{% endif %}" href="{% url 'category_list' %}">
                             <i class="bi bi-tag"></i> 分类管理
                         </a>
                     </li>
+                    {% endif %}
+                    {% if nav_permissions.show_inventory %}
                     <li class="nav-item">
                         <a class="nav-link {% if request.path == '/inventory/' %}active{% endif %}" href="{% url 'inventory_list' %}">
                             <i class="bi bi-clipboard-data me-1"></i>库存管理
                         </a>
                     </li>
+                    {% endif %}
+                    {% if nav_permissions.show_inventory_check %}
                     <li class="nav-item">
                         <a class="nav-link {% if '/inventory-checks/' in request.path %}active{% endif %}" href="{% url 'inventory_check_list' %}">
                             <i class="bi bi-clipboard-check"></i> 库存盘点
                         </a>
                     </li>
+                    {% endif %}
+                    {% if nav_permissions.show_sales %}
                     <li class="nav-item">
                         <a class="nav-link {% if '/sales/' in request.path %}active{% endif %}" href="{% url 'sale_list' %}">
                             <i class="bi bi-cart me-1"></i>销售管理
                         </a>
                     </li>
+                    {% endif %}
+                    {% if nav_permissions.show_reports %}
                     <li class="nav-item">
                         <a class="nav-link {% if '/reports/' in request.path %}active{% endif %}" href="{% url 'reports_index' %}">
                             <i class="bi bi-graph-up"></i> 报表中心
                         </a>
                     </li>
+                    {% endif %}
+                    {% if nav_permissions.show_warehouse %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/warehouses/' in request.path %}active{% endif %}" href="{% url 'warehouse_list' %}">
+                            <i class="bi bi-building"></i> 仓库管理
+                        </a>
+                    </li>
+                    {% endif %}
                 </ul>
                 <div class="d-flex">
                     <div class="dropdown">
@@ -629,8 +648,14 @@
                             {{ request.user.username }}
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end">
-                            <li><a class="dropdown-item" href="#"><i class="bi bi-gear me-2"></i>设置</a></li>
+                            {% if request.user.is_superuser %}
+                            <li>
+                                <a class="dropdown-item" href="{% url 'system_settings' %}">
+                                    <i class="bi bi-gear me-2"></i>系统设置
+                                </a>
+                            </li>
                             <li><hr class="dropdown-divider"></li>
+                            {% endif %}
                             <li>
                                 <!-- 使用表单代替链接 -->
                                 <form action="{% url 'logout' %}" method="post" class="d-inline">

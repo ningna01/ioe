@@ -4,18 +4,29 @@ from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 
 # 使用重构后的模型导入
-from inventory.models import Category, OperationLog
+from inventory.models import Category, OperationLog, UserWarehouseAccess
 from inventory.forms import CategoryForm
+from inventory.services.warehouse_scope_service import WarehouseScopeService
+
+
+def _ensure_category_manage_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=UserWarehouseAccess.PERMISSION_PRODUCT_MANAGE,
+        error_message='您无权访问分类管理模块',
+    )
 
 @login_required
 def category_list(request):
     """商品分类列表视图"""
+    _ensure_category_manage_access(request.user)
     categories = Category.objects.all().order_by('name')
     return render(request, 'inventory/category_list.html', {'categories': categories})
 
 @login_required
 def category_create(request):
     """创建商品分类视图"""
+    _ensure_category_manage_access(request.user)
     if request.method == 'POST':
         form = CategoryForm(request.POST)
         if form.is_valid():
@@ -40,6 +51,7 @@ def category_create(request):
 @login_required
 def category_edit(request, category_id):
     """编辑商品分类视图"""
+    _ensure_category_manage_access(request.user)
     category = get_object_or_404(Category, id=category_id)
     
     if request.method == 'POST':
@@ -65,6 +77,7 @@ def category_edit(request, category_id):
 
 @login_required
 def category_delete(request, category_id):
+    _ensure_category_manage_access(request.user)
     category = get_object_or_404(Category, id=category_id)
     
     # 检查该分类是否有关联的商品

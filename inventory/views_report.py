@@ -8,6 +8,7 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 
 from .forms import DateRangeForm, TopProductsForm, InventoryTurnoverForm
+from .models import UserWarehouseAccess
 from .services.report_service import ReportService
 from .services.export_service import ExportService
 from .services.warehouse_scope_service import WarehouseScopeService
@@ -15,7 +16,17 @@ from .utils.logging import log_view_access
 from .permissions.decorators import permission_required
 
 
+def _ensure_report_module_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=UserWarehouseAccess.PERMISSION_REPORT_VIEW,
+        error_message='您无权访问报表中心',
+        code='warehouse_scope_denied',
+    )
+
+
 def _resolve_report_scope(request):
+    _ensure_report_module_access(request.user)
     warehouse_param = (
         request.POST.get('warehouse')
         if request.method == 'POST'
@@ -25,6 +36,7 @@ def _resolve_report_scope(request):
         user=request.user,
         warehouse_param=warehouse_param,
         include_all_option=True,
+        required_permission=UserWarehouseAccess.PERMISSION_REPORT_VIEW,
     )
 
 
@@ -44,6 +56,7 @@ def report_index(request):
     """
     Report index view. Redirects to new reports_index.
     """
+    _ensure_report_module_access(request.user)
     return redirect('reports_index')
 
 @login_required
@@ -396,6 +409,7 @@ def member_analysis_report(request):
     """
     Member analysis report view.
     """
+    _ensure_report_module_access(request.user)
     if request.method == 'POST':
         form = DateRangeForm(request.POST)
         if form.is_valid():
@@ -449,6 +463,7 @@ def recharge_report(request):
     """
     Member recharge report view.
     """
+    _ensure_report_module_access(request.user)
     if request.method == 'POST':
         form = DateRangeForm(request.POST)
         if form.is_valid():
@@ -494,6 +509,7 @@ def operation_log_report(request):
     """
     Operation log report view.
     """
+    _ensure_report_module_access(request.user)
     if request.method == 'POST':
         form = DateRangeForm(request.POST)
         if form.is_valid():

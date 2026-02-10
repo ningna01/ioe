@@ -125,6 +125,26 @@ class UserWarehouseAccess(models.Model):
     PERMISSION_STOCK_IN = 4
     PERMISSION_STOCK_OUT = 8
     PERMISSION_INVENTORY_CHECK = 16
+    PERMISSION_STOCK_ADJUST = 32
+    PERMISSION_PRODUCT_MANAGE = 64
+    PERMISSION_REPORT_VIEW = 128
+
+    PERMISSION_DEFINITIONS = (
+        ('view', PERMISSION_VIEW, '查看库存', '允许查看仓库库存列表与明细'),
+        ('sale', PERMISSION_SALE, '销售', '允许在仓库范围内创建和处理销售单'),
+        ('stock_in', PERMISSION_STOCK_IN, '入库', '允许执行入库操作'),
+        ('stock_out', PERMISSION_STOCK_OUT, '出库', '允许执行出库操作'),
+        ('inventory_check', PERMISSION_INVENTORY_CHECK, '盘点', '允许执行库存盘点相关操作'),
+        ('stock_adjust', PERMISSION_STOCK_ADJUST, '调整库存', '允许执行库存调整操作'),
+        ('product_manage', PERMISSION_PRODUCT_MANAGE, '商品管理', '允许维护仓库商品主数据'),
+        ('report_view', PERMISSION_REPORT_VIEW, '报表查看', '允许查看仓库报表数据'),
+    )
+    PERMISSION_CODE_TO_BIT = {
+        code: bit for code, bit, _, _ in PERMISSION_DEFINITIONS
+    }
+    PERMISSION_CODE_TO_LABEL = {
+        code: label for code, _, label, _ in PERMISSION_DEFINITIONS
+    }
     DEFAULT_PERMISSION_BITS = (
         PERMISSION_VIEW
         | PERMISSION_SALE
@@ -211,6 +231,58 @@ class UserWarehouseAccess(models.Model):
     def has_permission(self, permission_bit):
         """判断是否拥有指定权限位"""
         return bool(self.permission_bits & permission_bit)
+
+    @classmethod
+    def get_permission_catalog(cls):
+        """返回仓库权限位定义，供视图和模板渲染。"""
+        return [
+            {
+                'code': code,
+                'bit': bit,
+                'label': label,
+                'description': description,
+            }
+            for code, bit, label, description in cls.PERMISSION_DEFINITIONS
+        ]
+
+    @classmethod
+    def bits_for_codes(cls, codes):
+        """将权限代码列表编码为权限位整数。"""
+        permission_bits = 0
+        for raw_code in codes or []:
+            normalized_code = str(raw_code or '').strip().lower()
+            bit = cls.PERMISSION_CODE_TO_BIT.get(normalized_code)
+            if bit:
+                permission_bits |= bit
+        return permission_bits
+
+    @classmethod
+    def codes_from_bits(cls, permission_bits):
+        """将权限位整数解码为权限代码列表。"""
+        normalized_bits = int(permission_bits or 0)
+        return [
+            code
+            for code, bit, _, _ in cls.PERMISSION_DEFINITIONS
+            if normalized_bits & bit
+        ]
+
+    @classmethod
+    def labels_from_bits(cls, permission_bits):
+        """将权限位整数解码为权限名称列表。"""
+        normalized_bits = int(permission_bits or 0)
+        return [
+            label
+            for _, bit, label, _ in cls.PERMISSION_DEFINITIONS
+            if normalized_bits & bit
+        ]
+
+    @classmethod
+    def ensure_permission_bits(cls, permission_bits):
+        """保证权限位为合法正整数，空值回退为默认权限。"""
+        normalized_bits = int(permission_bits or 0)
+        if normalized_bits <= 0:
+            return cls.DEFAULT_PERMISSION_BITS
+        return normalized_bits
 
 
 class WarehouseInventory(models.Model):

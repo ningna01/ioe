@@ -1,0 +1,104 @@
+{% extends 'inventory/base.html' %}
+
+{% block title %}系统信息{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb bg-white py-2">
+            <li class="breadcrumb-item"><a href="{% url 'index' %}">主页</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'system_settings' %}">系统设置</a></li>
+            <li class="breadcrumb-item active" aria-current="page">系统信息</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">系统信息</h1>
+        <a href="{% url 'system_settings' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>返回系统设置
+        </a>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card h-100 border-start border-4 border-primary">
+                <div class="card-body">
+                    <p class="text-muted mb-1">CPU 核心数</p>
+                    <h4 class="mb-0">{{ system_info.cpu_count }}</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-start border-4 border-success">
+                <div class="card-body">
+                    <p class="text-muted mb-1">可用内存 (GB)</p>
+                    <h4 class="mb-0">{{ system_info.memory_available }}</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-start border-4 border-warning">
+                <div class="card-body">
+                    <p class="text-muted mb-1">磁盘剩余 (GB)</p>
+                    <h4 class="mb-0">{{ system_info.disk_free }}</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100 border-start border-4 border-info">
+                <div class="card-body">
+                    <p class="text-muted mb-1">运行时长 (小时)</p>
+                    <h4 class="mb-0">{{ system_info.uptime }}</h4>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">系统环境</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">操作系统</dt>
+                        <dd class="col-sm-8">{{ system_info.os }} {{ system_info.os_version }}</dd>
+                        <dt class="col-sm-4">Python</dt>
+                        <dd class="col-sm-8">{{ system_info.python_version }}</dd>
+                        <dt class="col-sm-4">Django</dt>
+                        <dd class="col-sm-8">{{ system_info.django_version }}</dd>
+                        <dt class="col-sm-4">主机名</dt>
+                        <dd class="col-sm-8">{{ system_info.hostname }}</dd>
+                        <dt class="col-sm-4">服务器时间</dt>
+                        <dd class="col-sm-8">{{ system_info.server_time|date:"Y-m-d H:i:s" }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">数据统计</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-5">商品数量</dt>
+                        <dd class="col-sm-7">{{ db_stats.product_count }}</dd>
+                        <dt class="col-sm-5">分类数量</dt>
+                        <dd class="col-sm-7">{{ db_stats.category_count }}</dd>
+                        <dt class="col-sm-5">库存记录</dt>
+                        <dd class="col-sm-7">{{ db_stats.inventory_count }}</dd>
+                        <dt class="col-sm-5">销售记录</dt>
+                        <dd class="col-sm-7">{{ db_stats.sale_count }}</dd>
+                        <dt class="col-sm-5">媒体目录大小</dt>
+                        <dd class="col-sm-7">{{ media_size_mb }} MB</dd>
+                        <dt class="col-sm-5">系统日志大小</dt>
+                        <dd class="col-sm-7">{{ log_size_mb }} MB（约 {{ log_entries }} 行）</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

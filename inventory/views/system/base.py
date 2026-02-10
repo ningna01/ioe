@@ -19,6 +19,26 @@ from inventory.utils.logging import log_view_access
 # 获取logger
 logger = logging.getLogger(__name__)
 
+
+def _safe_call(func, default=None):
+    """在受限环境中安全调用系统信息函数。"""
+    try:
+        return func()
+    except Exception as exc:
+        logger.warning("system info metric unavailable: %s", exc)
+        return default
+
+
+def _safe_table_count(cursor, table_name):
+    try:
+        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+        result = cursor.fetchone()
+        return result[0] if result else 0
+    except Exception as exc:
+        logger.warning("failed counting %s: %s", table_name, exc)
+        return 0
+
+
 @login_required
 @log_view_access('OTHER')
 @permission_required('is_superuser')
@@ -44,20 +64,23 @@ def system_info(request):
     """
     系统信息视图，显示系统运行状态和环境信息
     """
+    memory_info = _safe_call(psutil.virtual_memory)
+    disk_info = _safe_call(lambda: psutil.disk_usage('/'))
+
     # 获取系统信息
     system_info = {
         'os': platform.system(),
         'os_version': platform.version(),
         'python_version': platform.python_version(),
         'django_version': django.__version__,
-        'cpu_count': psutil.cpu_count(),
-        'memory_total': round(psutil.virtual_memory().total / (1024 * 1024 * 1024), 2),  # GB
-        'memory_available': round(psutil.virtual_memory().available / (1024 * 1024 * 1024), 2),  # GB
-        'disk_total': round(psutil.disk_usage('/').total / (1024 * 1024 * 1024), 2),  # GB
-        'disk_free': round(psutil.disk_usage('/').free / (1024 * 1024 * 1024), 2),  # GB
+        'cpu_count': _safe_call(psutil.cpu_count, 0),
+        'memory_total': round(memory_info.total / (1024 * 1024 * 1024), 2) if memory_info else 0,  # GB
+        'memory_available': round(memory_info.available / (1024 * 1024 * 1024), 2) if memory_info else 0,  # GB
+        'disk_total': round(disk_info.total / (1024 * 1024 * 1024), 2) if disk_info else 0,  # GB
+        'disk_free': round(disk_info.free / (1024 * 1024 * 1024), 2) if disk_info else 0,  # GB
         'hostname': platform.node(),
         'server_time': timezone.now(),
-        'uptime': round((time.time() - psutil.boot_time()) / 3600, 2),  # 小时
+        'uptime': _safe_call(lambda: round((time.time() - psutil.boot_time()) / 3600, 2), 0),  # 小时
     }
     
     # 获取数据库统计信息
@@ -66,17 +89,10 @@ def system_info(request):
     
     # 各个主要表的记录数量
     with connection.cursor() as cursor:
-        cursor.execute("SELECT COUNT(*) FROM inventory_product")
-        db_stats['product_count'] = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM inventory_category")
-        db_stats['category_count'] = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM inventory_inventory")
-        db_stats['inventory_count'] = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM inventory_sale")
-        db_stats['sale_count'] = cursor.fetchone()[0]
+        db_stats['product_count'] = _safe_table_count(cursor, 'inventory_product')
+        db_stats['category_count'] = _safe_table_count(cursor, 'inventory_category')
+        db_stats['inventory_count'] = _safe_table_count(cursor, 'inventory_inventory')
+        db_stats['sale_count'] = _safe_table_count(cursor, 'inventory_sale')
         
         # cursor.execute("SELECT COUNT(*) FROM inventory_member")
         # db_stats['member_count'] = cursor.fetchone()[0]
@@ -97,10 +113,13 @@ def system_info(request):
     log_size_mb = 0
     log_entries = 0
     if os.path.exists(log_file):
-        log_size_mb = round(os.path.getsize(log_file) / (1024 * 1024), 2)
-        # 统计日志条目数（简单近似）
-        with open(log_file, 'r') as f:
-            log_entries = sum(1 for _ in f)
+        try:
+            log_size_mb = round(os.path.getsize(log_file) / (1024 * 1024), 2)
+            # 统计日志条目数（简单近似）
+            with open(log_file, 'r') as f:
+                log_entries = sum(1 for _ in f)
+        except OSError as exc:
+            logger.warning("failed reading system log metadata: %s", exc)
     
     # 组合所有信息
     context = {
@@ -126,28 +145,19 @@ def store_settings(request):
     store = Store.objects.first()
     
     if request.method == 'POST':
-        # 更新商店设置
-        store_name = request.POST.get('store_name')
-        address = request.POST.get('address')
-        phone = request.POST.get('phone')
-        email = request.POST.get('email')
-        website = request.POST.get('website')
-        store_description = request.POST.get('store_description')
-        logo = request.FILES.get('logo')
-        
+        # 更新商店设置（当前 Store 模型仅包含基础字段）
         if not store:
             store = Store()
         
-        store.name = store_name
-        store.address = address
-        store.phone = phone
-        store.email = email
-        store.website = website
-        store.description = store_description
-        
-        if logo:
-            store.logo = logo
-        
+        store.name = (request.POST.get('store_name') or '').strip()
+        store.address = (request.POST.get('address') or '').strip()
+        store.phone = (request.POST.get('phone') or '').strip()
+        store.is_active = request.POST.get('is_active') == 'on'
+
+        if not store.name:
+            messages.error(request, '店铺名称不能为空')
+            return redirect('store_settings')
+
         store.save()
         messages.success(request, '商店设置已更新')
         return redirect('store_settings')

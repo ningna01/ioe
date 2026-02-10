@@ -9,6 +9,15 @@ import inventory.models
 from .models.common import OperationLog 
 from . import forms
 from .ali_barcode_service import AliBarcodeService
+from .services.warehouse_scope_service import WarehouseScopeService
+
+
+def _ensure_product_manage_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=inventory.models.UserWarehouseAccess.PERMISSION_PRODUCT_MANAGE,
+        error_message='您无权访问条码建档模块',
+    )
 
 @login_required
 def barcode_product_create(request):
@@ -17,6 +26,7 @@ def barcode_product_create(request):
     支持GET方式查询条码，POST方式保存商品
     先查询数据库，如果不存在再调用API
     """
+    _ensure_product_manage_access(request.user)
     barcode = request.GET.get('barcode', '')
     barcode_data = None
     initial_data = {}
@@ -122,6 +132,7 @@ def barcode_lookup(request):
     AJAX接口，用于查询条码信息
     先查询数据库，如果不存在再调用API
     """
+    _ensure_product_manage_access(request.user)
     barcode = request.GET.get('barcode', '')
     if not barcode:
         return JsonResponse({'success': False, 'message': '请提供条码'})

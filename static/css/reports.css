@@ -1,0 +1,119 @@
+.report-page {
+    --report-surface: #ffffff;
+    --report-border: #e6eef8;
+    --report-heading: #19334c;
+    --report-muted: #5d7489;
+}
+
+.report-page .report-header {
+    background: linear-gradient(135deg, #f1f6ff 0%, #effaf3 100%);
+    border: 1px solid var(--report-border);
+    border-radius: 14px;
+    padding: 1rem 1.1rem;
+}
+
+.report-page .report-header h1,
+.report-page .report-header h2,
+.report-page .card-header h3 {
+    color: var(--report-heading);
+}
+
+.report-page .card {
+    border: 1px solid var(--report-border);
+    box-shadow: 0 6px 18px rgba(24, 54, 84, 0.06);
+}
+
+.report-page .card-header {
+    background: #f8fbff;
+    border-bottom: 1px solid var(--report-border);
+}
+
+.report-page .report-filter-card {
+    border-left: 4px solid #5c8fca;
+}
+
+.report-page .report-chart-card {
+    border-left: 4px solid #2f9b74;
+}
+
+.report-page .report-table-card {
+    border-left: 4px solid #2f9e97;
+}
+
+.report-page .report-kpi {
+    border-radius: 12px;
+    border: 1px solid var(--report-border);
+    background: #fff;
+    padding: 0.9rem;
+    height: 100%;
+}
+
+.report-page .report-kpi__label {
+    font-size: 0.82rem;
+    color: var(--report-muted);
+    margin-bottom: 0.25rem;
+}
+
+.report-page .report-kpi__value {
+    font-size: 1.35rem;
+    line-height: 1.2;
+    font-weight: 700;
+    color: var(--report-heading);
+}
+
+.report-page .chart-container {
+    background: #fbfdff;
+    border: 1px dashed #d9e6f4;
+    border-radius: 12px;
+    padding: 0.65rem;
+}
+
+.report-page .text-muted {
+    color: var(--report-muted) !important;
+}
+
+.report-page .table thead th {
+    background: #eaf2fb;
+    color: #16324a;
+    border-bottom: 1px solid #d5e4f2;
+    font-weight: 700;
+}
+
+.report-page .table tbody tr:hover td {
+    background: #f7fbff;
+}
+
+.report-page .empty-state {
+    padding: 1rem;
+    text-align: center;
+    color: var(--report-muted);
+}
+
+.report-page .report-link-card {
+    border: 1px solid var(--report-border);
+    border-radius: 12px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.report-page .report-link-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 20px rgba(24, 54, 84, 0.08);
+}
+
+.report-page .report-link-card .card-body {
+    padding: 1rem;
+}
+
+.report-page .report-link-card .card-footer {
+    background: #fcfdff;
+    border-top: 1px solid var(--report-border);
+}
+
+@media (max-width: 991.98px) {
+    .report-page .report-header {
+        padding: 0.85rem;
+    }
+}

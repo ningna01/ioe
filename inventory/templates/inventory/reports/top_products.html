@@ -4,12 +4,12 @@
 {% block title %}热销商品报表{% endblock %}
 
 {% block extra_head %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% include "inventory/reports/_assets.html" %}
 {% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="row mb-4">
+<div class="container report-page">
+    <div class="row mb-4 report-header">
         <div class="col-md-8">
             <h1 class="h2">热销商品报表</h1>
             <p class="text-muted">
@@ -27,7 +27,7 @@
     <!-- 搜索表单 -->
     <div class="row mb-4">
         <div class="col-md-12">
-            <div class="card">
+            <div class="card report-filter-card">
                 <div class="card-header">
                     <h3 class="h5 mb-0">设置报表参数</h3>
                 </div>
@@ -66,7 +66,7 @@
     <!-- 图表 -->
     <div class="row mb-4">
         <div class="col-md-12">
-            <div class="card">
+            <div class="card report-chart-card">
                 <div class="card-header">
                     <h3 class="h5 mb-0">热销商品统计图</h3>
                 </div>
@@ -82,7 +82,7 @@
     <!-- 数据表格 -->
     <div class="row">
         <div class="col-md-12">
-            <div class="card">
+            <div class="card report-table-card">
                 <div class="card-header">
                     <h3 class="h5 mb-0">热销商品明细</h3>
                 </div>
@@ -128,8 +128,6 @@
 {% if top_products %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        const ctx = document.getElementById('topProductsChart').getContext('2d');
-        
         // 准备数据
         const labels = [
             {% for product in top_products %}
@@ -150,7 +148,7 @@
         ];
 
         // 创建图表
-        const myChart = new Chart(ctx, {
+        ReportCharts.create('topProductsChart', {
             type: 'bar',
             data: {
                 labels: labels,
@@ -158,8 +156,8 @@
                     {
                         label: '销售数量',
                         data: quantityData,
-                        backgroundColor: 'rgba(52, 152, 219, 0.6)',
-                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(58, 120, 192, 0.55)',
+                        borderColor: ReportCharts.palette.blue,
                         borderWidth: 1,
                         borderRadius: 4,
                         xAxisID: 'x1'
@@ -167,8 +165,8 @@
                     {
                         label: '销售额',
                         data: salesData,
-                        backgroundColor: 'rgba(46, 204, 113, 0.6)',
-                        borderColor: '#2ecc71',
+                        backgroundColor: 'rgba(47, 155, 116, 0.55)',
+                        borderColor: ReportCharts.palette.green,
                         borderWidth: 1,
                         borderRadius: 4,
                         xAxisID: 'x'
@@ -177,17 +175,7 @@
             },
             options: {
                 indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: true,
                 aspectRatio: 1.8,
-                layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
-                plugins: {
-                    legend: { position: 'top', align: 'end' }
-                },
-                interaction: {
-                    mode: 'index',
-                    intersect: false
-                },
                 scales: {
                     x: {
                         type: 'linear',

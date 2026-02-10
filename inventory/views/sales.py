@@ -24,12 +24,22 @@ from inventory.models import (
     Category,
     Supplier,
     Warehouse,
+    UserWarehouseAccess,
     check_inventory,
     update_inventory,
 )  # Member, MemberTransaction, MemberLevel 已禁用
 from inventory.forms import SaleForm, SaleItemForm
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 from inventory.utils.query_utils import paginate_queryset
+
+
+def _ensure_sale_module_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=UserWarehouseAccess.PERMISSION_SALE,
+        error_message='您无权访问销售模块',
+    )
+
 
 def _get_sale_status(sale):
     return (sale.status or '').strip().upper()
@@ -55,6 +65,7 @@ def _is_sale_deleted(sale):
 
 
 def _get_sale_for_user_or_404(user, sale_id):
+    _ensure_sale_module_access(user)
     sale = get_object_or_404(Sale, pk=sale_id)
     WarehouseScopeService.ensure_sale_access(user, sale)
     return sale
@@ -118,9 +129,14 @@ def _create_sale_stock_change_log(
 @login_required
 def sale_list(request):
     """销售单列表视图"""
+    _ensure_sale_module_access(request.user)
     today = timezone.now().date()
     base_sales = Sale.objects.select_related('operator', 'warehouse').prefetch_related('items').order_by('-created_at')
-    base_sales = WarehouseScopeService.filter_sales_queryset(request.user, base_sales)
+    base_sales = WarehouseScopeService.filter_sales_queryset(
+        request.user,
+        base_sales,
+        required_permission=UserWarehouseAccess.PERMISSION_SALE,
+    )
     # 统计口径固定为原始销售数据，不受删除可见性筛选影响
     today_sales = base_sales.filter(created_at__date=today).aggregate(total=Sum('total_amount'))['total'] or 0
     month_sales = base_sales.filter(created_at__month=today.month).aggregate(total=Sum('total_amount'))['total'] or 0
@@ -210,6 +226,7 @@ def sale_detail(request, sale_id):
 @login_required
 def sale_create(request):
     """创建销售单视图"""
+    _ensure_sale_module_access(request.user)
     if request.method == 'POST':
         # 添加调试信息
         print("=" * 80)
@@ -218,7 +235,10 @@ def sale_create(request):
             print(f"{key}: {value}")
         print("=" * 80)
 
-        available_warehouses = WarehouseScopeService.get_accessible_warehouses(request.user)
+        available_warehouses = WarehouseScopeService.get_accessible_warehouses(
+            request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_SALE,
+        )
         warehouse_id = request.POST.get('warehouse')
         if warehouse_id:
             try:
@@ -228,7 +248,11 @@ def sale_create(request):
                 return redirect('sale_create')
         else:
             selected_warehouse = WarehouseScopeService.get_default_warehouse(request.user)
-            if selected_warehouse is None:
+            if selected_warehouse is None or not WarehouseScopeService.can_access_warehouse(
+                request.user,
+                selected_warehouse,
+                required_permission=UserWarehouseAccess.PERMISSION_SALE,
+            ):
                 selected_warehouse = available_warehouses.first()
 
         if selected_warehouse is None:
@@ -626,8 +650,17 @@ def sale_create(request):
     # from inventory.models import MemberLevel
     # member_levels = MemberLevel.objects.all()
     
-    warehouses = WarehouseScopeService.get_accessible_warehouses(request.user)
+    warehouses = WarehouseScopeService.get_accessible_warehouses(
+        request.user,
+        required_permission=UserWarehouseAccess.PERMISSION_SALE,
+    )
     default_warehouse = WarehouseScopeService.get_default_warehouse(request.user)
+    if default_warehouse and not WarehouseScopeService.can_access_warehouse(
+        request.user,
+        default_warehouse,
+        required_permission=UserWarehouseAccess.PERMISSION_SALE,
+    ):
+        default_warehouse = warehouses.first()
     selected_warehouse_id = request.POST.get('warehouse', '') if request.method == 'POST' else (
         str(default_warehouse.id) if default_warehouse else ''
     )
@@ -641,6 +674,7 @@ def sale_create(request):
 @login_required
 def sale_item_create(request, sale_id):
     """添加销售单商品视图"""
+    _ensure_sale_module_access(request.user)
     sale = _get_sale_for_user_or_404(request.user, sale_id)
 
     if _is_sale_completed(sale):
@@ -730,6 +764,7 @@ def sale_item_create(request, sale_id):
 @login_required
 def sale_complete(request, sale_id):
     """完成销售视图"""
+    _ensure_sale_module_access(request.user)
     sale = _get_sale_for_user_or_404(request.user, sale_id)
     if _is_sale_deleted(sale):
         messages.error(request, '已删除的销售单不能执行完成操作')
@@ -838,6 +873,7 @@ def sale_complete(request, sale_id):
 @login_required
 def sale_cancel(request, sale_id):
     """软删除销售单视图（仅隐藏，不影响业务数据）"""
+    _ensure_sale_module_access(request.user)
     sale = _get_sale_for_user_or_404(request.user, sale_id)
 
     if _is_sale_deleted(sale):
@@ -869,6 +905,7 @@ def sale_cancel(request, sale_id):
 @login_required
 def sale_delete_item(request, sale_id, item_id):
     """删除销售单商品视图"""
+    _ensure_sale_module_access(request.user)
     sale = _get_sale_for_user_or_404(request.user, sale_id)
 
     if request.method != 'POST':

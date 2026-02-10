@@ -13,10 +13,26 @@ from inventory.models import (
     Product, InventoryTransaction,
     Warehouse, WarehouseInventory,
     OperationLog, StockAlert, check_inventory,
-    update_inventory, Category
+    update_inventory, Category, UserWarehouseAccess
 )
 from inventory.forms import InventoryTransactionForm
 from inventory.services.warehouse_scope_service import WarehouseScopeService
+
+
+def _ensure_inventory_read_access(user):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=UserWarehouseAccess.PERMISSION_VIEW,
+        error_message='您无权查看库存数据',
+    )
+
+
+def _ensure_inventory_write_access(user, required_permission, error_message):
+    WarehouseScopeService.ensure_any_warehouse_permission(
+        user=user,
+        required_permission=required_permission,
+        error_message=error_message,
+    )
 
 
 def _build_inventory_notes(source, intent, user_notes='', extra_context=None):
@@ -81,6 +97,7 @@ def _create_inventory_operation_log(
 @login_required
 def inventory_list(request):
     """库存列表视图（支持按仓库筛选，使用 WarehouseInventory）"""
+    _ensure_inventory_read_access(request.user)
     category_id = request.GET.get('category', '')
     color = request.GET.get('color', '')
     size = request.GET.get('size', '')
@@ -88,8 +105,17 @@ def inventory_list(request):
     warehouse_param = request.GET.get('warehouse', '')
 
     # 仓库筛选：按用户授权解析
-    available_warehouses = WarehouseScopeService.get_accessible_warehouses(request.user)
+    available_warehouses = WarehouseScopeService.get_accessible_warehouses(
+        request.user,
+        required_permission=UserWarehouseAccess.PERMISSION_VIEW,
+    )
     default_warehouse = WarehouseScopeService.get_default_warehouse(request.user)
+    if default_warehouse and not WarehouseScopeService.can_access_warehouse(
+        request.user,
+        default_warehouse,
+        required_permission=UserWarehouseAccess.PERMISSION_VIEW,
+    ):
+        default_warehouse = available_warehouses.first()
     show_all_warehouses = warehouse_param == 'all'
     selected_warehouse = None
     selected_warehouse_value = warehouse_param
@@ -120,9 +146,17 @@ def inventory_list(request):
     ).all()
 
     if show_all_warehouses:
-        inventory_items = WarehouseScopeService.filter_warehouse_inventory_queryset(request.user, base_qs)
+        inventory_items = WarehouseScopeService.filter_warehouse_inventory_queryset(
+            request.user,
+            base_qs,
+            required_permission=UserWarehouseAccess.PERMISSION_VIEW,
+        )
     elif selected_warehouse:
-        if WarehouseScopeService.can_access_warehouse(request.user, selected_warehouse):
+        if WarehouseScopeService.can_access_warehouse(
+            request.user,
+            selected_warehouse,
+            required_permission=UserWarehouseAccess.PERMISSION_VIEW,
+        ):
             inventory_items = base_qs.filter(warehouse=selected_warehouse)
         else:
             inventory_items = base_qs.none()
@@ -165,6 +199,7 @@ def inventory_list(request):
 @login_required
 def inventory_transaction_list(request):
     """库存交易记录列表，显示所有入库、出库和调整记录"""
+    _ensure_inventory_read_access(request.user)
     # 获取筛选参数
     transaction_type = request.GET.get('type', '')
     product_id = request.GET.get('product_id', '')
@@ -174,7 +209,11 @@ def inventory_transaction_list(request):
     
     # 基础查询
     transactions = InventoryTransaction.objects.select_related('product', 'operator', 'warehouse').all()
-    transactions = WarehouseScopeService.filter_inventory_transactions_queryset(request.user, transactions)
+    transactions = WarehouseScopeService.filter_inventory_transactions_queryset(
+        request.user,
+        transactions,
+        required_permission=UserWarehouseAccess.PERMISSION_VIEW,
+    )
     
     # 应用筛选条件
     if transaction_type:
@@ -228,8 +267,17 @@ def inventory_transaction_list(request):
 @login_required
 def inventory_in(request):
     """入库视图（支持多仓库）"""
+    _ensure_inventory_write_access(
+        request.user,
+        UserWarehouseAccess.PERMISSION_STOCK_IN,
+        '您无权执行入库操作',
+    )
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST, user=request.user)
+        form = InventoryTransactionForm(
+            request.POST,
+            user=request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_STOCK_IN,
+        )
         if form.is_valid():
             product = form.cleaned_data['product']
             warehouse = form.cleaned_data['warehouse']
@@ -281,7 +329,10 @@ def inventory_in(request):
                 ),
             )
     else:
-        form = InventoryTransactionForm(user=request.user)
+        form = InventoryTransactionForm(
+            user=request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_STOCK_IN,
+        )
     return render(request, 'inventory/inventory_transaction_form.html', {
         'form': form,
         'form_title': '商品入库',
@@ -293,8 +344,17 @@ def inventory_in(request):
 @login_required
 def inventory_out(request):
     """出库视图（支持多仓库）"""
+    _ensure_inventory_write_access(
+        request.user,
+        UserWarehouseAccess.PERMISSION_STOCK_OUT,
+        '您无权执行出库操作',
+    )
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST, user=request.user)
+        form = InventoryTransactionForm(
+            request.POST,
+            user=request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_STOCK_OUT,
+        )
         if form.is_valid():
             product = form.cleaned_data['product']
             warehouse = form.cleaned_data['warehouse']
@@ -370,7 +430,10 @@ def inventory_out(request):
                 ),
             )
     else:
-        form = InventoryTransactionForm(user=request.user)
+        form = InventoryTransactionForm(
+            user=request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_STOCK_OUT,
+        )
     
     return render(request, 'inventory/inventory_transaction_form.html', {
         'form': form,
@@ -383,8 +446,17 @@ def inventory_out(request):
 @login_required
 def inventory_adjust(request):
     """库存调整视图"""
+    _ensure_inventory_write_access(
+        request.user,
+        UserWarehouseAccess.PERMISSION_STOCK_ADJUST,
+        '您无权执行库存调整操作',
+    )
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST, user=request.user)
+        form = InventoryTransactionForm(
+            request.POST,
+            user=request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_STOCK_ADJUST,
+        )
         if form.is_valid():
             product = form.cleaned_data['product']
             warehouse = form.cleaned_data['warehouse']
@@ -483,7 +555,10 @@ def inventory_adjust(request):
                 ),
             )
     else:
-        form = InventoryTransactionForm(user=request.user)
+        form = InventoryTransactionForm(
+            user=request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_STOCK_ADJUST,
+        )
         product_id = request.GET.get('product_id')
         if product_id:
             try:
@@ -514,8 +589,17 @@ def inventory_adjust(request):
 @login_required
 def inventory_transaction_create(request):
     """创建入库交易视图"""
+    _ensure_inventory_write_access(
+        request.user,
+        UserWarehouseAccess.PERMISSION_STOCK_IN,
+        '您无权执行入库操作',
+    )
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST, user=request.user)
+        form = InventoryTransactionForm(
+            request.POST,
+            user=request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_STOCK_IN,
+        )
         if form.is_valid():
             product = form.cleaned_data['product']
             warehouse = form.cleaned_data['warehouse']
@@ -570,6 +654,9 @@ def inventory_transaction_create(request):
                 ),
             )
     else:
-        form = InventoryTransactionForm(user=request.user)
+        form = InventoryTransactionForm(
+            user=request.user,
+            required_permission=UserWarehouseAccess.PERMISSION_STOCK_IN,
+        )
     
     return render(request, 'inventory/inventory_form.html', {'form': form}) 

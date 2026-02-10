@@ -1,6 +1,7 @@
 from django import forms
 
 from inventory.models import InventoryTransaction, Product, Warehouse
+from inventory.exceptions import AuthorizationError
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 
 
@@ -50,14 +51,20 @@ class InventoryTransactionForm(forms.ModelForm):
     
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user', None)
+        self.required_permission = kwargs.pop('required_permission', None)
         super().__init__(*args, **kwargs)
         # 使用select_related优化查询
         self.fields['product'].queryset = Product.objects.filter(is_active=True).select_related('category')
 
         if self.user is not None:
-            accessible_warehouses = WarehouseScopeService.get_accessible_warehouses(self.user)
+            accessible_warehouses = WarehouseScopeService.get_accessible_warehouses(
+                self.user,
+                required_permission=self.required_permission,
+            )
             self.fields['warehouse'].queryset = accessible_warehouses
             default_warehouse = WarehouseScopeService.get_default_warehouse(self.user)
+            if default_warehouse and not accessible_warehouses.filter(id=default_warehouse.id).exists():
+                default_warehouse = accessible_warehouses.first()
         else:
             self.fields['warehouse'].queryset = Warehouse.objects.filter(is_active=True).order_by('name')
             default_warehouse = Warehouse.objects.filter(is_default=True, is_active=True).first()
@@ -82,6 +89,13 @@ class InventoryTransactionForm(forms.ModelForm):
         if warehouse and not warehouse.is_active:
             raise forms.ValidationError('所选仓库已被禁用，请选择其他仓库')
         if warehouse and self.user is not None:
-            if not WarehouseScopeService.can_access_warehouse(self.user, warehouse):
+            try:
+                WarehouseScopeService.ensure_warehouse_permission(
+                    user=self.user,
+                    warehouse=warehouse,
+                    required_permission=self.required_permission,
+                    error_message='您无权操作该仓库',
+                )
+            except AuthorizationError:
                 raise forms.ValidationError('您无权操作该仓库')
         return warehouse
