@@ -50,6 +50,7 @@
                                         <option value="">全部</option>
                                         <option value="retail" {% if sale_type == 'retail' %}selected{% endif %}>零售</option>
                                         <option value="wholesale" {% if sale_type == 'wholesale' %}selected{% endif %}>批发</option>
+                                        <option value="deleted" {% if sale_type == 'deleted' %}selected{% endif %}>已删除</option>
                                     </select>
                                 </div>
                             </div>
@@ -112,13 +113,26 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <span class="badge bg-success">已完成</span>
+                                    {% if sale.status == 'DELETED' %}
+                                    <span class="badge bg-danger">{{ sale.get_status_display }}</span>
+                                    {% else %}
+                                    <span class="badge bg-success">{{ sale.get_status_display }}</span>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     <div class="btn-group">
                                         <a href="{% url 'sale_detail' sale.id %}" class="btn btn-sm btn-outline-info" title="查看详情">
                                             <i class="bi bi-eye"></i>
                                         </a>
+                                        {% if sale.status != 'DELETED' %}
+                                        <a href="{% url 'sale_cancel' sale.id %}" class="btn btn-sm btn-outline-danger" title="删除订单">
+                                            <i class="bi bi-trash"></i>
+                                        </a>
+                                        {% else %}
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" title="已删除" disabled>
+                                            <i class="bi bi-check2-circle"></i>
+                                        </button>
+                                        {% endif %}
                                         <a href="#" class="btn btn-sm btn-outline-secondary" title="打印">
                                             <i class="bi bi-printer"></i>
                                         </a>

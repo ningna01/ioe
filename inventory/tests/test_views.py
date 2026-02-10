@@ -167,6 +167,25 @@ class InventoryViewTest(ViewTestCase):
 
 class SaleViewTest(ViewTestCase):
     """测试销售相关视图"""
+
+    def _create_sale_with_item(self, quantity=5):
+        sale = Sale.objects.create(
+            operator=self.user,
+            total_amount=Decimal('0.00'),
+            discount_amount=Decimal('0.00'),
+            final_amount=Decimal('0.00'),
+            payment_method='cash'
+        )
+        item = SaleItem.objects.create(
+            sale=sale,
+            product=self.product,
+            quantity=quantity,
+            price=self.product.price,
+            actual_price=self.product.price,
+            subtotal=self.product.price * quantity,
+            sale_type='retail'
+        )
+        return sale, item
     
     def test_sale_list_view(self):
         """测试销售列表视图"""
@@ -210,6 +229,71 @@ class SaleViewTest(ViewTestCase):
         
         # 验证重定向
         self.assertEqual(response.status_code, 302)
+
+    def test_sale_detail_repairs_inconsistent_amount(self):
+        """测试销售详情页面会修复销售金额不一致问题"""
+        self.client.login(username='testuser', password='12345')
+        sale, _ = self._create_sale_with_item(quantity=5)
+
+        Sale.objects.filter(id=sale.id).update(
+            total_amount=Decimal('0.00'),
+            discount_amount=Decimal('1.00'),
+            final_amount=Decimal('0.00')
+        )
+
+        response = self.client.get(reverse('sale_detail', args=[sale.id]))
+        self.assertEqual(response.status_code, 200)
+
+        sale.refresh_from_db()
+        self.assertEqual(sale.total_amount, Decimal('50.00'))
+        self.assertEqual(sale.discount_amount, Decimal('1.00'))
+        self.assertEqual(sale.final_amount, Decimal('49.00'))
+
+    def test_sale_cancel_page_available(self):
+        """测试销售取消页面可正常打开"""
+        self.client.login(username='testuser', password='12345')
+        sale, _ = self._create_sale_with_item(quantity=2)
+
+        response = self.client.get(reverse('sale_cancel', args=[sale.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'inventory/sale_cancel.html')
+
+    def test_sale_soft_delete_hides_from_default_list_and_preserves_inventory(self):
+        """测试销售单软删除后默认隐藏且库存不变"""
+        self.client.login(username='testuser', password='12345')
+        sale, _ = self._create_sale_with_item(quantity=3)
+        transaction_count_before_delete = InventoryTransaction.objects.filter(product=self.product).count()
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 97)
+
+        first_response = self.client.post(reverse('sale_cancel', args=[sale.id]), {'reason': '测试删除'})
+        self.assertRedirects(first_response, reverse('sale_list'))
+
+        sale.refresh_from_db()
+        self.assertEqual(sale.status, 'DELETED')
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 97)
+
+        second_response = self.client.post(reverse('sale_cancel', args=[sale.id]), {'reason': '重复删除'})
+        self.assertRedirects(second_response, reverse('sale_detail', args=[sale.id]))
+
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 97)
+
+        detail_response = self.client.get(reverse('sale_detail', args=[sale.id]))
+        self.assertContains(detail_response, '已删除')
+
+        default_list_response = self.client.get(reverse('sale_list'))
+        self.assertNotContains(default_list_response, f'订单 #{sale.id}')
+        self.assertEqual(default_list_response.context['today_sales'], Decimal('30.00'))
+
+        deleted_list_response = self.client.get(reverse('sale_list'), {'sale_type': 'deleted'})
+        self.assertContains(deleted_list_response, f'订单 #{sale.id}')
+
+        transaction_count_after_delete = InventoryTransaction.objects.filter(product=self.product).count()
+        self.assertEqual(transaction_count_after_delete, transaction_count_before_delete)
 
     # def test_member_sale_view(self):
     #     """测试会员销售视图"""

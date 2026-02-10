@@ -18,26 +18,52 @@ from inventory.models import Sale, SaleItem, Inventory, InventoryTransaction, Op
 from inventory.forms import SaleForm, SaleItemForm
 from inventory.utils.query_utils import paginate_queryset
 
+def _get_sale_status(sale):
+    return (sale.status or '').strip().upper()
+
+
+def _is_sale_completed(sale):
+    return _get_sale_status(sale) == 'COMPLETED'
+
+
+def _is_sale_deleted(sale):
+    if _get_sale_status(sale) == 'DELETED':
+        return True
+
+    sale_content_type = ContentType.objects.get_for_model(Sale)
+    return OperationLog.objects.filter(
+        operation_type='SALE',
+        related_object_id=sale.id,
+        related_content_type=sale_content_type,
+    ).filter(
+        Q(details__startswith=f'删除销售单 #{sale.id}') |
+        Q(details__startswith=f'取消销售单 #{sale.id}')
+    ).exists()
+
+
 @login_required
 def sale_list(request):
     """销售单列表视图"""
     today = timezone.now().date()
-    today_sales = Sale.objects.filter(created_at__date=today).aggregate(
-        total=Sum('total_amount')
-    )['total'] or 0
-    month_sales = Sale.objects.filter(created_at__month=today.month).aggregate(
-        total=Sum('total_amount')
-    )['total'] or 0
+    base_sales = Sale.objects.select_related('operator').prefetch_related('items').order_by('-created_at')
+    # 统计口径固定为原始销售数据，不受删除可见性筛选影响
+    today_sales = base_sales.filter(created_at__date=today).aggregate(total=Sum('total_amount'))['total'] or 0
+    month_sales = base_sales.filter(created_at__month=today.month).aggregate(total=Sum('total_amount'))['total'] or 0
+    total_sales = base_sales.count()
 
     # 从GET参数获取搜索和筛选条件
     search_query = request.GET.get('q', '')
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
     sale_type = request.GET.get('sale_type', '')
-    
     # 获取所有销售单，使用prefetch_related优化查询
-    sales = Sale.objects.select_related('operator').prefetch_related('items').order_by('-created_at')
-    total_sales = sales.count()
+    sales = base_sales
+    # 默认只显示已完成，只有 sale_type=deleted 时显示已删除
+    if sale_type == 'deleted':
+        sales = sales.filter(status='DELETED')
+    else:
+        sales = sales.filter(status='COMPLETED')
+
     # 应用筛选条件
     if search_query:
         sales = sales.filter(id__icontains=search_query)
@@ -57,7 +83,7 @@ def sale_list(request):
     if sale_type and sale_type in ['retail', 'wholesale']:
         # 由于销售单只有一种销售方式，可以通过items__sale_type筛选
         sales = sales.filter(items__sale_type=sale_type).distinct()
-    
+
     # 分页
     page_number = request.GET.get('page', 1)
     paginated_sales = paginate_queryset(sales, page_number)
@@ -82,29 +108,22 @@ def sale_detail(request, sale_id):
     items = SaleItem.objects.filter(sale=sale).select_related('product')
     
     # 确保销售单金额与商品项总和一致
-    items_total = sum(item.subtotal for item in items)
-    if items_total > 0 and (sale.total_amount == 0 or abs(sale.total_amount - items_total) > 1):
+    items_total = sum((item.subtotal or Decimal('0.00')) for item in items)
+    if items_total > 0 and (sale.total_amount == 0 or abs(sale.total_amount - items_total) > Decimal('0.01')):
         print(f"警告: 销售单金额({sale.total_amount})与商品项总和({items_total})不一致，正在修复")
-        # 会员折扣计算（已禁用）
-        # discount_rate = Decimal('1.0')
-        # if sale.member and sale.member.level and sale.member.level.discount:
-        #     try:
-        #         discount_rate = Decimal(str(sale.member.level.discount))
-        #     except:
-        #         discount_rate = Decimal('1.0')
-        # 
-        # discount_amount = items_total * (Decimal('1.0') - discount_rate)
-        # final_amount = items_total - discount_amount
-        
-        # 使用原始SQL直接更新数据库
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE inventory_sale SET total_amount = %s, discount_amount = %s, final_amount = %s WHERE id = %s",
-                [items_total, discount_amount, final_amount, sale.id]
-            )
-        
-        # 重新加载销售单数据
-        sale = get_object_or_404(Sale, pk=sale_id)
+        discount_amount = sale.discount_amount or Decimal('0.00')
+        if discount_amount < 0:
+            discount_amount = Decimal('0.00')
+        if discount_amount > items_total:
+            discount_amount = items_total
+        final_amount = items_total - discount_amount
+
+        Sale.objects.filter(pk=sale.id).update(
+            total_amount=items_total,
+            discount_amount=discount_amount,
+            final_amount=final_amount
+        )
+        sale.refresh_from_db(fields=['total_amount', 'discount_amount', 'final_amount'])
     
     context = {
         'sale': sale,
@@ -656,47 +675,31 @@ def sale_complete(request, sale_id):
 
 @login_required
 def sale_cancel(request, sale_id):
-    """取消销售单视图"""
+    """软删除销售单视图（仅隐藏，不影响业务数据）"""
     sale = get_object_or_404(Sale, id=sale_id)
-    
-    # 检查状态，只有未完成的销售单可以取消
-    if sale.status == 'COMPLETED':
-        messages.error(request, '已完成的销售单不能取消')
+
+    if _is_sale_deleted(sale):
+        messages.warning(request, '销售单已删除，请勿重复操作')
         return redirect('sale_detail', sale_id=sale.id)
     
     if request.method == 'POST':
         reason = request.POST.get('reason', '')
-        
-        # 恢复库存
-        for item in sale.items.all():
-            inventory = Inventory.objects.get(product=item.product)
-            inventory.quantity += item.quantity
-            inventory.save()
+
+        with transaction.atomic():
+            # 仅做逻辑删除，不影响库存和交易数据
+            reason_text = reason.strip() if reason else '未填写'
+            sale.status = 'DELETED'
+            sale.save(update_fields=['status'])
             
-            # 创建入库交易记录
-            InventoryTransaction.objects.create(
-                product=item.product,
-                transaction_type='IN',
-                quantity=item.quantity,
+            OperationLog.objects.create(
                 operator=request.user,
-                notes=f'取消销售单 #{sale.id} 恢复库存'
+                operation_type='SALE',
+                details=f'删除销售单 #{sale.id}，原因: {reason_text}',
+                related_object_id=sale.id,
+                related_content_type=ContentType.objects.get_for_model(Sale)
             )
         
-        # 更改销售单状态
-        sale.status = 'CANCELLED'
-        sale.notes = f"{sale.notes or ''}\n取消原因: {reason}".strip()
-        sale.save()
-        
-        # 记录操作日志
-        OperationLog.objects.create(
-            operator=request.user,
-            operation_type='SALE',
-            details=f'取消销售单 #{sale.id}，原因: {reason}',
-            related_object_id=sale.id,
-            related_content_type=ContentType.objects.get_for_model(Sale)
-        )
-        
-        messages.success(request, '销售单已取消')
+        messages.success(request, '销售单已删除（默认列表已隐藏）')
         return redirect('sale_list')
     
     return render(request, 'inventory/sale_cancel.html', {'sale': sale})
@@ -708,12 +711,19 @@ def sale_delete_item(request, sale_id, item_id):
     item = get_object_or_404(SaleItem, id=item_id, sale=sale)
     
     # 检查销售单状态
-    if sale.status == 'COMPLETED':
+    if _is_sale_completed(sale):
         messages.error(request, '已完成的销售单不能修改')
+        return redirect('sale_detail', sale_id=sale.id)
+
+    if _is_sale_deleted(sale):
+        messages.error(request, '已删除的销售单不能修改')
         return redirect('sale_detail', sale_id=sale.id)
     
     # 恢复库存
-    inventory = Inventory.objects.get(product=item.product)
+    inventory, _ = Inventory.objects.get_or_create(
+        product=item.product,
+        defaults={'quantity': 0, 'warning_level': 10}
+    )
     inventory.quantity += item.quantity
     inventory.save()
     
@@ -738,6 +748,7 @@ def sale_delete_item(request, sale_id, item_id):
     # 删除商品并更新销售单总额
     item.delete()
     sale.update_total_amount()
+    sale.save()
     
     messages.success(request, '商品已从销售单中删除')
     return redirect('sale_item_create', sale_id=sale.id)

@@ -1,0 +1,37 @@
+{% extends 'inventory/base.html' %}
+
+{% block title %}删除销售单 - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-danger text-white">
+                <h4 class="mb-0">删除销售单 #{{ sale.id }}</h4>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">
+                    删除后该销售单会从默认列表隐藏，并标记为“已删除”；不会改动库存、交易、金额等业务数据。
+                </p>
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="reason" class="form-label">删除原因</label>
+                        <textarea
+                            class="form-control"
+                            id="reason"
+                            name="reason"
+                            rows="4"
+                            placeholder="请输入删除原因（可选）"
+                        ></textarea>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-danger">确认删除（仅隐藏）</button>
+                        <a href="{% url 'sale_detail' sale.id %}" class="btn btn-outline-secondary">返回详情</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

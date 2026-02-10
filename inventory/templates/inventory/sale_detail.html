@@ -16,6 +16,15 @@
                         <a href="{% url 'sale_list' %}" class="btn btn-secondary">
                             <i class="bi bi-arrow-left me-1"></i> 返回列表
                         </a>
+                        {% if sale.status != 'DELETED' %}
+                        <a href="{% url 'sale_cancel' sale.id %}" class="btn btn-outline-danger">
+                            <i class="bi bi-trash me-1"></i> 删除订单
+                        </a>
+                        {% else %}
+                        <button class="btn btn-outline-secondary" disabled>
+                            <i class="bi bi-check2-circle me-1"></i> 已删除
+                        </button>
+                        {% endif %}
                         <button class="btn btn-outline-primary print-button">
                             <i class="bi bi-printer me-1"></i> 打印
                         </button>
@@ -53,7 +62,11 @@
                     </li>
                     <li class="list-group-item d-flex justify-content-between">
                         <span class="text-muted">状态:</span>
-                        <span class="badge bg-success">已完成</span>
+                        {% if sale.status == 'DELETED' %}
+                        <span class="badge bg-danger">{{ sale.get_status_display }}</span>
+                        {% else %}
+                        <span class="badge bg-success">{{ sale.get_status_display }}</span>
+                        {% endif %}
                     </li>
                 </ul>
             </div>
@@ -213,7 +226,7 @@
 </div>
 
 <!-- 备注信息 -->
-{% if sale.notes %}
+{% if sale.remark %}
 <div class="row mb-4">
     <div class="col-12">
         <div class="card shadow-sm">
@@ -221,7 +234,7 @@
                 <h4 class="card-title mb-0">备注信息</h4>
             </div>
             <div class="card-body">
-                <p class="mb-0">{{ sale.notes }}</p>
+                <p class="mb-0">{{ sale.remark }}</p>
             </div>
         </div>
     </div>

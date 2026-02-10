@@ -9,6 +9,11 @@ class Sale(models.Model):
     """
     销售单模型
     """
+    STATUS_CHOICES = [
+        ('COMPLETED', '已完成'),
+        ('DELETED', '已删除'),
+    ]
+
     PAYMENT_METHODS = [
         ('cash', '现金'),
         ('wechat', '微信'),
@@ -30,6 +35,7 @@ class Sale(models.Model):
     balance_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='余额支付')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     operator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='操作员')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='COMPLETED', verbose_name='状态')
     remark = models.TextField(blank=True, verbose_name='备注')
 
     @property

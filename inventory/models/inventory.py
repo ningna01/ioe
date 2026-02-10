@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
 from .product import Product
-from .warehouse import Warehouse
+from .warehouse import Warehouse, WarehouseInventory
 
 
 class Inventory(models.Model):
