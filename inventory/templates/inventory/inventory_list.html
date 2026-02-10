@@ -13,7 +13,7 @@
                         <p class="text-muted mb-md-0">管理所有商品库存信息</p>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
-                        <a href="{% url 'inventory_create' %}" class="btn btn-primary">
+                        <a href="{% url 'inventory_in' %}" class="btn btn-primary">
                             <i class="bi bi-plus-circle me-1"></i> 入库
                         </a>
                     </div>
@@ -37,7 +37,14 @@
                             </div>
                         </div>
                         <div class="col-md-8">
-                            <div class="d-flex flex-wrap gap-2">
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                <select name="warehouse" class="form-select" style="width: auto;" onchange="this.form.submit()">
+                                    <option value="" {% if not selected_warehouse %}selected{% endif %}>默认仓库</option>
+                                    <option value="all" {% if selected_warehouse == 'all' %}selected{% endif %}>所有仓库</option>
+                                    {% for wh in warehouses %}
+                                    <option value="{{ wh.id }}" {% if selected_warehouse == wh.id|stringformat:"i" %}selected{% endif %}>{{ wh.name }}</option>
+                                    {% endfor %}
+                                </select>
                                 <select name="category" class="form-select" style="width: auto;" onchange="this.form.submit()">
                                     <option value="">所有分类</option>
                                     {% for category in categories %}
@@ -66,7 +73,7 @@
                                 </select>
                                 
                                 <button type="submit" class="btn btn-primary">筛选</button>
-                                {% if selected_category or selected_color or selected_size or search_query %}
+                                {% if selected_category or selected_color or selected_size or selected_warehouse or search_query %}
                                 <a href="{% url 'inventory_list' %}" class="btn btn-outline-secondary">
                                     <i class="bi bi-x-circle me-1"></i>清除筛选
                                 </a>
@@ -90,6 +97,7 @@
                         <thead class="table-light">
                             <tr>
                                 <th>商品信息</th>
+                                {% if show_all_warehouses %}<th>仓库</th>{% endif %}
                                 <th>分类</th>
                                 <th>颜色/尺码</th>
                                 <th>当前库存</th>
@@ -118,6 +126,9 @@
                                         </div>
                                     </div>
                                 </td>
+                                {% if show_all_warehouses %}
+                                <td><span class="badge bg-secondary">{{ item.warehouse.name }}</span></td>
+                                {% endif %}
                                 <td>
                                     <span class="badge bg-info text-dark">{{ item.product.category.name }}</span>
                                 </td>
@@ -145,7 +156,7 @@
                                 </td>
                                 <td>
                                     <div class="btn-group">
-                                        <a href="#" class="btn btn-sm btn-outline-primary" title="入库">
+                                        <a href="{% url 'inventory_in' %}" class="btn btn-sm btn-outline-primary" title="入库">
                                             <i class="bi bi-box-arrow-in-down"></i>
                                         </a>
                                         <a href="#" class="btn btn-sm btn-outline-warning" title="出库">
@@ -159,12 +170,12 @@
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="7" class="text-center py-5">
+                                <td colspan="{% if show_all_warehouses %}8{% else %}7{% endif %}" class="text-center py-5">
                                     <div class="d-flex flex-column align-items-center">
                                         <i class="bi bi-clipboard-x text-muted" style="font-size: 2.5rem;"></i>
                                         <p class="mt-3 mb-1">暂无库存数据</p>
                                         <small class="text-muted">
-                                            {% if search_query or selected_category or selected_color or selected_size %}
+                                            {% if search_query or selected_category or selected_color or selected_size or selected_warehouse %}
                                             没有找到符合筛选条件的库存，请尝试调整筛选条件
                                             {% else %}
                                             点击"入库"按钮添加库存

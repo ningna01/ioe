@@ -10,7 +10,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 
 from inventory.models import (
-    Product, Inventory, InventoryTransaction, 
+    Product, Inventory, InventoryTransaction,
+    Warehouse, WarehouseInventory,
     OperationLog, StockAlert, check_inventory,
     update_inventory, Category
 )
@@ -19,50 +20,72 @@ from inventory.forms import InventoryTransactionForm
 
 @login_required
 def inventory_list(request):
-    """库存列表视图"""
-    # 获取筛选参数
+    """库存列表视图（支持按仓库筛选，使用 WarehouseInventory）"""
     category_id = request.GET.get('category', '')
     color = request.GET.get('color', '')
     size = request.GET.get('size', '')
     search_query = request.GET.get('search', '')
-    
-    # 基础查询
-    inventory_items = Inventory.objects.select_related('product', 'product__category').all()
-    
-    # 应用筛选条件
+    warehouse_param = request.GET.get('warehouse', '')
+
+    # 仓库筛选：验证并解析
+    default_warehouse = Warehouse.objects.filter(is_default=True, is_active=True).first()
+    show_all_warehouses = warehouse_param == 'all'
+    selected_warehouse = None
+
+    if warehouse_param and not show_all_warehouses:
+        try:
+            wh_id = int(warehouse_param)
+            if Warehouse.objects.filter(id=wh_id, is_active=True).exists():
+                selected_warehouse = Warehouse.objects.get(id=wh_id)
+            else:
+                selected_warehouse = default_warehouse
+        except (ValueError, TypeError):
+            selected_warehouse = default_warehouse
+    else:
+        selected_warehouse = default_warehouse
+
+    # 基础查询：使用 WarehouseInventory（与原 Inventory 行为一致，含 0 库存）
+    base_qs = WarehouseInventory.objects.select_related(
+        'product', 'product__category', 'warehouse'
+    ).all()
+
+    if show_all_warehouses:
+        inventory_items = base_qs
+    elif selected_warehouse:
+        inventory_items = base_qs.filter(warehouse=selected_warehouse)
+    else:
+        inventory_items = base_qs.none()
+
     if category_id:
         inventory_items = inventory_items.filter(product__category_id=category_id)
-    
     if color:
         inventory_items = inventory_items.filter(product__color=color)
-    
     if size:
         inventory_items = inventory_items.filter(product__size=size)
-    
     if search_query:
         inventory_items = inventory_items.filter(
-            Q(product__name__icontains=search_query) | 
+            Q(product__name__icontains=search_query) |
             Q(product__barcode__icontains=search_query)
         )
-    
-    # 获取所有分类
+
     categories = Category.objects.all()
-    
-    # 获取所有可用的颜色和尺码
     colors = Product.COLOR_CHOICES
     sizes = Product.SIZE_CHOICES
-    
+    warehouses = Warehouse.objects.filter(is_active=True).order_by('name')
+
     context = {
         'inventory_items': inventory_items,
         'categories': categories,
         'colors': colors,
         'sizes': sizes,
+        'warehouses': warehouses,
         'selected_category': category_id,
         'selected_color': color,
         'selected_size': size,
+        'selected_warehouse': warehouse_param,
+        'show_all_warehouses': show_all_warehouses,
         'search_query': search_query,
     }
-    
     return render(request, 'inventory/inventory_list.html', context)
 
 
@@ -138,22 +161,15 @@ def inventory_in(request):
             warehouse = form.cleaned_data['warehouse']
             quantity = form.cleaned_data['quantity']
             notes = form.cleaned_data['notes']
-            
-            # 使用工具函数更新库存（支持多仓库）
             success, inventory, result = update_inventory(
                 product=product,
                 warehouse=warehouse,
-                quantity=quantity,  # 正数表示入库
+                quantity=quantity,
                 transaction_type='IN',
                 operator=request.user,
                 notes=notes
             )
-            
             if success:
-                # 获取库存类型的字符串表示
-                inventory_type = 'WarehouseInventory' if hasattr(inventory, 'warehouse') else 'Inventory'
-                
-                # 记录操作日志
                 OperationLog.objects.create(
                     operator=request.user,
                     operation_type='INVENTORY',
@@ -161,14 +177,12 @@ def inventory_in(request):
                     related_object_id=inventory.id,
                     related_content_type=ContentType.objects.get_for_model(inventory)
                 )
-                
                 messages.success(request, f'{product.name} 入库成功，当前库存: {inventory.quantity} ({warehouse.name})')
                 return redirect('inventory_list')
             else:
                 messages.error(request, f'入库失败: {result}')
     else:
         form = InventoryTransactionForm()
-    
     return render(request, 'inventory/inventory_transaction_form.html', {
         'form': form,
         'form_title': '商品入库',

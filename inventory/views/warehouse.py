@@ -19,12 +19,9 @@ def warehouse_list(request):
     """仓库列表视图"""
     warehouses = Warehouse.objects.annotate(
         product_count=Count('inventories', filter=Q(inventories__quantity__gt=0)),
-        total_quantity=Sum('inventories__quantity')
+        annotated_total=Sum('inventories__quantity')  # 避免与模型 @property total_quantity 冲突
     ).order_by('name')
-    
-    context = {
-        'warehouses': warehouses,
-    }
+    context = {'warehouses': warehouses}
     return render(request, 'inventory/warehouse_list.html', context)
 
 

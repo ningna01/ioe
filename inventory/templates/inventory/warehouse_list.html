@@ -59,7 +59,7 @@
                                     <span class="badge bg-info">{{ warehouse.product_count|default:0 }}</span>
                                 </td>
                                 <td class="d-none d-md-table-cell">
-                                    {{ warehouse.total_quantity|default:0 }}
+                                    {{ warehouse.annotated_total|default:0 }}
                                 </td>
                                 <td>
                                     {% if warehouse.is_active %}
