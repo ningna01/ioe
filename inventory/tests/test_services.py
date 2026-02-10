@@ -2,17 +2,21 @@ from django.test import TestCase
 from django.contrib.auth.models import User
 from decimal import Decimal
 from django.utils import timezone
+from datetime import timedelta
 
 from inventory.models import (
-    Category, 
-    Product, 
-    Inventory, 
+    Category,
+    Product,
+    Inventory,
     InventoryTransaction,
     InventoryCheck,
-    InventoryCheckItem
+    InventoryCheckItem,
+    Sale,
+    SaleItem,
 )
 from inventory.services.inventory_service import InventoryService
 from inventory.services.inventory_check_service import InventoryCheckService
+from inventory.services.report_service import ReportService
 from inventory.exceptions import InsufficientStockError, InventoryValidationError
 
 class InventoryServiceTest(TestCase):
@@ -257,3 +261,135 @@ class InventoryCheckServiceTest(TestCase):
         self.assertEqual(updated_item.notes, '测试盘点记录')
         self.assertEqual(updated_item.checked_by, self.user)
         self.assertIsNotNone(updated_item.checked_at)
+
+
+class ReportServiceTurnoverTest(TestCase):
+    """库存周转率方案 A 测试"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='12345')
+        self.category = Category.objects.create(name='测试分类')
+        self.product = Product.objects.create(
+            barcode='1234567890',
+            name='测试商品',
+            category=self.category,
+            price=Decimal('10.00'),
+            cost=Decimal('5.00')
+        )
+        self.inventory = Inventory.objects.create(
+            product=self.product,
+            quantity=50,
+            warning_level=10
+        )
+
+    def test_turnover_scheme_a_with_in_out_transactions(self):
+        """方案 A：有 IN/OUT 交易时，基于交易推算期初库存"""
+        # 当前库存 50，期间 IN=20, OUT=30 -> 期初 = 50 - 20 + 30 = 60
+        InventoryTransaction.objects.create(
+            product=self.product,
+            transaction_type='IN',
+            quantity=20,
+            operator=self.user,
+            notes='测试入库',
+            warehouse=None
+        )
+        InventoryTransaction.objects.create(
+            product=self.product,
+            transaction_type='OUT',
+            quantity=30,
+            operator=self.user,
+            notes='测试出库',
+            warehouse=None
+        )
+        # 创建销售记录（销量 10）
+        sale = Sale.objects.create(
+            total_amount=Decimal('100'),
+            discount_amount=Decimal('0'),
+            final_amount=Decimal('100'),
+            payment_method='cash',
+            operator=self.user
+        )
+        SaleItem.objects.create(
+            sale=sale,
+            product=self.product,
+            quantity=10,
+            price=Decimal('10'),
+            actual_price=Decimal('10'),
+            subtotal=Decimal('100'),
+            sale_type='retail'
+        )
+
+        start_date = timezone.now().date() - timedelta(days=30)
+        end_date = timezone.now().date()
+        result = ReportService.get_inventory_turnover_rate(start_date, end_date)
+
+        data = next((r for r in result if r['product_id'] == self.product.id), None)
+        self.assertIsNotNone(data)
+        # 期初=60, 期末=50, 平均=(60+50)/2=55
+        self.assertAlmostEqual(data['avg_stock'], 55.0, places=2)
+        self.assertEqual(data['sold_quantity'], 10)
+        self.assertEqual(data['current_stock'], 50)
+
+    def test_turnover_fallback_with_adjust_in_period(self):
+        """有 ADJUST 时降级为近似公式：avg = (current + sold) / 2"""
+        InventoryTransaction.objects.create(
+            product=self.product,
+            transaction_type='ADJUST',
+            quantity=50,
+            operator=self.user,
+            notes='盘点调整',
+            warehouse=None
+        )
+        sale = Sale.objects.create(
+            total_amount=Decimal('50'),
+            discount_amount=Decimal('0'),
+            final_amount=Decimal('50'),
+            payment_method='cash',
+            operator=self.user
+        )
+        SaleItem.objects.create(
+            sale=sale,
+            product=self.product,
+            quantity=5,
+            price=Decimal('10'),
+            actual_price=Decimal('10'),
+            subtotal=Decimal('50'),
+            sale_type='retail'
+        )
+
+        start_date = timezone.now().date() - timedelta(days=30)
+        end_date = timezone.now().date()
+        result = ReportService.get_inventory_turnover_rate(start_date, end_date)
+
+        data = next((r for r in result if r['product_id'] == self.product.id), None)
+        self.assertIsNotNone(data)
+        # 降级公式: avg = (50 + 5) / 2 = 27.5
+        self.assertAlmostEqual(data['avg_stock'], 27.5, places=2)
+
+    def test_turnover_no_transactions_uses_current(self):
+        """无交易时 beginning=current，avg_stock=current"""
+        sale = Sale.objects.create(
+            total_amount=Decimal('100'),
+            discount_amount=Decimal('0'),
+            final_amount=Decimal('100'),
+            payment_method='cash',
+            operator=self.user
+        )
+        SaleItem.objects.create(
+            sale=sale,
+            product=self.product,
+            quantity=5,
+            price=Decimal('10'),
+            actual_price=Decimal('10'),
+            subtotal=Decimal('100'),
+            sale_type='retail'
+        )
+
+        start_date = timezone.now().date() - timedelta(days=30)
+        end_date = timezone.now().date()
+        result = ReportService.get_inventory_turnover_rate(start_date, end_date)
+
+        data = next((r for r in result if r['product_id'] == self.product.id), None)
+        self.assertIsNotNone(data)
+        # 无 IN/OUT，beginning=current=50, avg=(50+50)/2=50
+        self.assertAlmostEqual(data['avg_stock'], 50.0, places=2)

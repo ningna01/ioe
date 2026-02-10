@@ -1,14 +1,28 @@
 """
 Report generation and data analysis services.
 """
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-from django.db.models import Sum, Count, F, Q, Avg, ExpressionWrapper, FloatField, DecimalField
-from django.db.models.functions import TruncDay, TruncWeek, TruncMonth
+from django.db.models import Sum, Count, F, Case, When, Value
+from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 from django.utils import timezone
 
 from inventory.models import Product, Inventory, Sale, SaleItem, InventoryTransaction, OperationLog
 from inventory.utils.date_utils import get_period_boundaries
+
+
+def _normalize_date_range(start_date, end_date):
+    """
+    确保 end_date 包含整天，避免遗漏结束日数据。
+    当 end_date 为 date 对象时，查询上界使用次日 00:00。
+    """
+    if not end_date:
+        return start_date, end_date
+    if isinstance(end_date, date) and not isinstance(end_date, datetime):
+        end_date_upper = end_date + timedelta(days=1)
+        return start_date, end_date_upper
+    return start_date, end_date
+
 
 class ReportService:
     """Service for generating reports and analyzing data."""
@@ -31,7 +45,9 @@ class ReportService:
             start_date = timezone.now() - timedelta(days=30)
         if not end_date:
             end_date = timezone.now()
-            
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+
         # Truncate function based on period
         if period == 'day':
             trunc_func = TruncDay('created_at')
@@ -39,12 +55,16 @@ class ReportService:
             trunc_func = TruncWeek('created_at')
         elif period == 'month':
             trunc_func = TruncMonth('created_at')
+        elif period == 'quarter':
+            trunc_func = TruncQuarter('created_at')
+        elif period == 'year':
+            trunc_func = TruncYear('created_at')
         else:
             trunc_func = TruncDay('created_at')
-            
+
         # Query sales data
         sales_query = Sale.objects.filter(
-            created_at__range=(start_date, end_date)
+            created_at__range=(start_date, end_date_upper)
         )
         
         # Apply sale type filter if specified
@@ -62,11 +82,12 @@ class ReportService:
             item_count=Count('items')
         ).order_by('period')
         
-        # Calculate profit
+        # Calculate profit（利润率 = 利润 / 销售额）
         for data in sales_data:
             data['profit'] = data['total_sales'] - (data['total_cost'] or 0)
-            if data['total_cost'] and data['total_cost'] > 0:
-                data['profit_margin'] = (data['profit'] / data['total_cost']) * 100
+            total_sales_val = data.get('total_sales') or 0
+            if total_sales_val and total_sales_val > 0:
+                data['profit_margin'] = (data['profit'] / total_sales_val) * 100
             else:
                 data['profit_margin'] = 0
                 
@@ -90,16 +111,18 @@ class ReportService:
             start_date = timezone.now() - timedelta(days=30)
         if not end_date:
             end_date = timezone.now()
-            
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+
         items_query = SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date)
+            sale__created_at__range=(start_date, end_date_upper)
         )
-        
+
         # Apply sale type filter if specified
         if sale_type and sale_type in ['retail', 'wholesale']:
             items_query = items_query.filter(sale_type=sale_type)
-            
-        return items_query.values(
+
+        raw_data = list(items_query.values(
             'product__id',
             'product__name',
             'product__barcode',
@@ -109,12 +132,16 @@ class ReportService:
             total_sales=Sum('subtotal'),
             total_cost=Sum(F('quantity') * F('product__cost'))
         ).annotate(
-            profit=F('total_sales') - F('total_cost'),
-            profit_margin=ExpressionWrapper(
-                F('profit') * 100 / F('total_cost'),
-                output_field=DecimalField()
-            )
-        ).order_by('-total_quantity')[:limit]
+            profit=F('total_sales') - F('total_cost')
+        ).order_by('-total_quantity')[:limit])
+
+        # Python 后处理：利润率 = 利润/销售额，避免 total_sales=0 时除零
+        for item in raw_data:
+            total_sales_val = item.get('total_sales') or 0
+            profit = item.get('profit') or 0
+            item['profit_margin'] = (profit * 100 / total_sales_val) if total_sales_val else Decimal('0')
+
+        return raw_data
     
     @staticmethod
     def get_inventory_turnover_rate(start_date=None, end_date=None, category=None):
@@ -133,22 +160,26 @@ class ReportService:
             start_date = timezone.now() - timedelta(days=30)
         if not end_date:
             end_date = timezone.now()
-        
-        # Time period in days
-        days = (end_date - start_date).days or 1  # Avoid division by zero
-        
+
+        # 在规范化前计算 days（用于周转率计算）
+        start_for_days = start_date.date() if hasattr(start_date, 'date') else start_date
+        end_for_days = end_date.date() if hasattr(end_date, 'date') else end_date
+        days = (end_for_days - start_for_days).days or 1
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+
         # Get current inventory levels
         inventory_query = Inventory.objects.select_related('product').all()
-        
+
         # Filter by category if specified
         if category:
             inventory_query = inventory_query.filter(product__category=category)
-            
+
         inventory_data = inventory_query
-        
+
         # Get sales within period
         sales_query = SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date)
+            sale__created_at__range=(start_date, end_date_upper)
         )
         
         # Apply category filter if needed
@@ -162,23 +193,51 @@ class ReportService:
         # Create a map for quick lookup
         sales_map = {item['product']: item['total_quantity'] for item in sales_data}
         
+        # 方案 A：从 InventoryTransaction 推算期初库存（warehouse=null 与 Inventory 域一致）
+        txn_sums = InventoryTransaction.objects.filter(
+            created_at__range=(start_date, end_date_upper),
+            warehouse__isnull=True
+        ).exclude(
+            transaction_type='ADJUST'
+        ).values('product').annotate(
+            total_in=Sum(Case(When(transaction_type='IN', then=F('quantity')), default=Value(0))),
+            total_out=Sum(Case(When(transaction_type='OUT', then=F('quantity')), default=Value(0)))
+        )
+        txn_map = {item['product']: item for item in txn_sums}
+        
+        # 统计期内有 ADJUST 的商品，降级使用近似公式
+        products_with_adjust = set(
+            InventoryTransaction.objects.filter(
+                created_at__range=(start_date, end_date_upper),
+                warehouse__isnull=True,
+                transaction_type='ADJUST'
+            ).values_list('product_id', flat=True).distinct()
+        )
+        
         # Calculate turnover for each product
         product_turnover = []
         for inv in inventory_data:
             sold_quantity = sales_map.get(inv.product.id, 0)
             current_quantity = inv.quantity
+            txn = txn_map.get(inv.product.id, {'total_in': 0, 'total_out': 0})
             
-            # Calculate average inventory (simple approximation)
-            # For better accuracy, we would need historical inventory records
-            average_inventory = (current_quantity + sold_quantity) / 2
+            # 平均库存：方案 A 基于交易推算，ADJUST 或异常时降级
+            if inv.product.id in products_with_adjust:
+                average_inventory = (current_quantity + sold_quantity) / 2
+            else:
+                beginning = current_quantity - (txn.get('total_in') or 0) + (txn.get('total_out') or 0)
+                if beginning < 0:
+                    average_inventory = (0 + current_quantity) / 2  # 数据异常保护
+                else:
+                    average_inventory = (beginning + current_quantity) / 2
             
             # Calculate turnover rate (annualized)
             if average_inventory > 0:
                 turnover_rate = (sold_quantity / average_inventory) * (365 / days)
-                turnover_days = 365 / turnover_rate if turnover_rate > 0 else float('inf')
+                turnover_days = 365 / turnover_rate if turnover_rate > 0 else 9999
             else:
                 turnover_rate = 0
-                turnover_days = float('inf')
+                turnover_days = 9999  # 无销售时显示为大值，模板显示为 ---
                 
             product_turnover.append({
                 'product_id': inv.product.id,
@@ -214,10 +273,12 @@ class ReportService:
             start_date = timezone.now() - timedelta(days=30)
         if not end_date:
             end_date = timezone.now()
-            
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+
         # Sales data
         sales_query = Sale.objects.filter(
-            created_at__range=(start_date, end_date)
+            created_at__range=(start_date, end_date_upper)
         )
         
         # Apply sale type filter if specified
@@ -246,24 +307,25 @@ class ReportService:
         gross_profit = (total_sales['final_amount'] or 0) - total_cost
         
         # Calculate by category
-        category_data = sale_items_query.values(
+        category_data = list(sale_items_query.values(
             'product__category__name'
         ).annotate(
             sales=Sum('subtotal'),
             cost=Sum(F('quantity') * F('product__cost')),
             quantity=Sum('quantity')
         ).annotate(
-            profit=F('sales') - F('cost'),
-            profit_margin=ExpressionWrapper(
-                F('profit') * 100 / F('cost'),
-                output_field=DecimalField()
-            )
-        ).order_by('-profit')
+            profit=F('sales') - F('cost')
+        ).order_by('-profit'))
         
-        # Profit margin
-        profit_margin = 0
-        if total_cost > 0:
-            profit_margin = (gross_profit / total_cost) * 100
+        # 利润率 = 利润/销售额，Python 后处理避免除零
+        for d in category_data:
+            sales_val = d.get('sales') or 0
+            profit_val = d.get('profit') or 0
+            d['profit_margin'] = (profit_val * 100 / sales_val) if sales_val else 0
+        
+        # 汇总利润率 = 利润/销售额
+        total_sales_amount = total_sales['final_amount'] or 0
+        profit_margin = (gross_profit / total_sales_amount) * 100 if total_sales_amount else 0
             
         return {
             'start_date': start_date,
@@ -275,7 +337,7 @@ class ReportService:
             'discount_amount': total_sales['discount_amount'] or 0,
             'order_count': sales_query.count(),
             'item_count': sale_items_query.count(),
-            'category_data': list(category_data)
+            'category_data': category_data
         }
 
     @staticmethod
@@ -391,7 +453,7 @@ class ReportService:
             end_date = timezone.now()
         
         # 按销售方式统计
-        sales_by_type = SaleItem.objects.filter(
+        sales_by_type = list(SaleItem.objects.filter(
             sale__created_at__range=(start_date, end_date)
         ).values('sale_type').annotate(
             total_sales=Sum('subtotal'),
@@ -399,14 +461,16 @@ class ReportService:
             total_cost=Sum(F('quantity') * F('product__cost')),
             order_count=Count('sale', distinct=True)
         ).annotate(
-            profit=F('total_sales') - F('total_cost'),
-            profit_margin=ExpressionWrapper(
-                F('profit') * 100 / F('total_cost'),
-                output_field=DecimalField()
-            )
-        )
+            profit=F('total_sales') - F('total_cost')
+        ))
         
-        return list(sales_by_type)
+        # 利润率 = 利润/销售额，Python 后处理避免除零
+        for item in sales_by_type:
+            total_sales_val = item.get('total_sales') or 0
+            profit_val = item.get('profit') or 0
+            item['profit_margin'] = (profit_val * 100 / total_sales_val) if total_sales_val else 0
+        
+        return sales_by_type
     
     @staticmethod
     def get_sales_type_comparison(start_date=None, end_date=None):
@@ -451,13 +515,14 @@ class ReportService:
         retail_profit = (retail_data['total_sales'] or 0) - (retail_data['total_cost'] or 0)
         wholesale_profit = (wholesale_data['total_sales'] or 0) - (wholesale_data['total_cost'] or 0)
         
+        # 利润率 = 利润/销售额
         retail_margin = 0
-        if retail_data['total_cost'] and retail_data['total_cost'] > 0:
-            retail_margin = (retail_profit / retail_data['total_cost']) * 100
+        if retail_data['total_sales'] and retail_data['total_sales'] > 0:
+            retail_margin = (retail_profit / retail_data['total_sales']) * 100
         
         wholesale_margin = 0
-        if wholesale_data['total_cost'] and wholesale_data['total_cost'] > 0:
-            wholesale_margin = (wholesale_profit / wholesale_data['total_cost']) * 100
+        if wholesale_data['total_sales'] and wholesale_data['total_sales'] > 0:
+            wholesale_margin = (wholesale_profit / wholesale_data['total_sales']) * 100
         
         return {
             'retail': {

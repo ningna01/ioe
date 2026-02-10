@@ -61,7 +61,9 @@
                     <h3 class="h5 mb-0">库存周转率统计图</h3>
                 </div>
                 <div class="card-body">
-                    <canvas id="turnoverChart" height="300"></canvas>
+                    <div class="chart-container">
+                        <canvas id="turnoverChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -73,6 +75,9 @@
             <div class="card">
                 <div class="card-header">
                     <h3 class="h5 mb-0">库存周转明细</h3>
+                    <small class="text-muted d-block mt-1">
+                        说明：有入库/出库记录的商品采用交易推算的平均库存；统计期内有调整记录的商品使用近似公式。
+                    </small>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
@@ -98,9 +103,9 @@
                                     <td class="text-end">{{ item.avg_stock|floatformat:1 }}</td>
                                     <td class="text-end">{{ item.sold_quantity }}</td>
                                     <td class="text-end">{{ item.turnover_rate|floatformat:2 }}</td>
-                                    <td class="text-end">{{ item.turnover_days|floatformat:0 }}</td>
+                                    <td class="text-end">{% if item.turnover_days >= 9999 %}---{% else %}{{ item.turnover_days|floatformat:0 }}{% endif %}</td>
                                     <td>
-                                        {% if item.turnover_days > 90 %}
+                                        {% if item.turnover_days >= 9999 or item.turnover_days > 90 %}
                                         <span class="badge bg-danger">滞销</span>
                                         {% elif item.turnover_days > 60 %}
                                         <span class="badge bg-warning">周转慢</span>
@@ -145,7 +150,7 @@
         
         const turnoverDaysData = [
             {% for item in inventory_data %}
-                {{ item.turnover_days|default:0 }},
+                {% if item.turnover_days >= 9999 %}null{% else %}{{ item.turnover_days|default:0 }}{% endif %},
             {% endfor %}
         ];
         
@@ -158,24 +163,35 @@
                     {
                         label: '周转率',
                         data: turnoverRateData,
-                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(52, 152, 219, 0.6)',
+                        borderColor: '#3498db',
                         borderWidth: 1,
+                        borderRadius: 4,
                         yAxisID: 'y'
                     },
                     {
                         label: '周转天数',
                         data: turnoverDaysData,
                         type: 'line',
-                        backgroundColor: 'rgba(255, 99, 132, 0.5)',
-                        borderColor: 'rgba(255, 99, 132, 1)',
+                        fill: false,
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.2)',
                         borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#e74c3c',
                         yAxisID: 'y1'
                     }
                 ]
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: true,
+                aspectRatio: 2.5,
+                layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
+                plugins: {
+                    legend: { position: 'top', align: 'end' }
+                },
                 interaction: {
                     mode: 'index',
                     intersect: false

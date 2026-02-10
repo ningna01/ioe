@@ -61,7 +61,9 @@
                     <h3 class="h5 mb-0">热销商品统计图</h3>
                 </div>
                 <div class="card-body">
-                    <canvas id="topProductsChart" height="300"></canvas>
+                    <div class="chart-container">
+                        <canvas id="topProductsChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -136,7 +138,7 @@
                 {{ product.total_sales|default:0 }},
             {% endfor %}
         ];
-        
+
         // 创建图表
         const myChart = new Chart(ctx, {
             type: 'bar',
@@ -146,49 +148,50 @@
                     {
                         label: '销售数量',
                         data: quantityData,
-                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(52, 152, 219, 0.6)',
+                        borderColor: '#3498db',
                         borderWidth: 1,
-                        yAxisID: 'y1'
+                        borderRadius: 4,
+                        xAxisID: 'x1'
                     },
                     {
                         label: '销售额',
                         data: salesData,
-                        backgroundColor: 'rgba(75, 192, 192, 0.5)',
-                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(46, 204, 113, 0.6)',
+                        borderColor: '#2ecc71',
                         borderWidth: 1,
-                        yAxisID: 'y'
+                        borderRadius: 4,
+                        xAxisID: 'x'
                     }
                 ]
             },
             options: {
                 indexAxis: 'y',
                 responsive: true,
+                maintainAspectRatio: true,
+                aspectRatio: 1.8,
+                layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
+                plugins: {
+                    legend: { position: 'top', align: 'end' }
+                },
                 interaction: {
                     mode: 'index',
                     intersect: false
                 },
                 scales: {
-                    y: {
+                    x: {
                         type: 'linear',
                         display: true,
-                        position: 'right',
-                        title: {
-                            display: true,
-                            text: '销售额 (¥)'
-                        },
-                        grid: {
-                            drawOnChartArea: false
-                        }
+                        position: 'top',
+                        title: { display: true, text: '销售额 (¥)' },
+                        grid: { drawOnChartArea: false }
                     },
-                    y1: {
+                    x1: {
                         type: 'linear',
                         display: true,
-                        position: 'left',
-                        title: {
-                            display: true,
-                            text: '销售数量'
-                        }
+                        position: 'bottom',
+                        title: { display: true, text: '销售数量' },
+                        grid: { drawOnChartArea: false }
                     }
                 }
             }

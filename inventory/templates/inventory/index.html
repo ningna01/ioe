@@ -95,7 +95,9 @@
                 <div class="card-body">
                     {% if sales_trend %}
                     {{ sales_trend|json_script:"salesTrendData" }}
-                    <canvas id="salesChart" height="200"></canvas>
+                    <div class="chart-container">
+                        <canvas id="salesChart"></canvas>
+                    </div>
                     {% else %}
                     <p class="text-muted text-center py-4">暂无销售趋势数据</p>
                     {% endif %}
@@ -254,28 +256,36 @@
                     datasets: [{
                         label: '销售额',
                         data: data,
-                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                        borderColor: '#3498db',
                         borderWidth: 2,
-                        tension: 0.1
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#3498db'
                     }]
                 },
                 options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 2.5,
+                    layout: { padding: { top: 12, right: 16, bottom: 12, left: 16 } },
+                    plugins: {
+                        legend: { position: 'top', align: 'end' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return '销售额: ¥' + context.parsed.y;
+                                }
+                            }
+                        }
+                    },
                     scales: {
                         y: {
                             beginAtZero: true,
                             ticks: {
                                 callback: function(value) {
                                     return '¥' + value;
-                                }
-                            }
-                        }
-                    },
-                    plugins: {
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return '销售额: ¥' + context.parsed.y;
                                 }
                             }
                         }
