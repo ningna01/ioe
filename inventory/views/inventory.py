@@ -130,17 +130,19 @@ def inventory_transaction_list(request):
 
 @login_required
 def inventory_in(request):
-    """入库视图"""
+    """入库视图（支持多仓库）"""
     if request.method == 'POST':
         form = InventoryTransactionForm(request.POST)
         if form.is_valid():
             product = form.cleaned_data['product']
+            warehouse = form.cleaned_data['warehouse']
             quantity = form.cleaned_data['quantity']
             notes = form.cleaned_data['notes']
             
-            # 使用工具函数更新库存
+            # 使用工具函数更新库存（支持多仓库）
             success, inventory, result = update_inventory(
                 product=product,
+                warehouse=warehouse,
                 quantity=quantity,  # 正数表示入库
                 transaction_type='IN',
                 operator=request.user,
@@ -148,16 +150,19 @@ def inventory_in(request):
             )
             
             if success:
+                # 获取库存类型的字符串表示
+                inventory_type = 'WarehouseInventory' if hasattr(inventory, 'warehouse') else 'Inventory'
+                
                 # 记录操作日志
                 OperationLog.objects.create(
                     operator=request.user,
                     operation_type='INVENTORY',
-                    details=f'入库: {product.name} x {quantity}',
+                    details=f'入库: {product.name} x {quantity} -> {warehouse.name}',
                     related_object_id=inventory.id,
                     related_content_type=ContentType.objects.get_for_model(inventory)
                 )
                 
-                messages.success(request, f'{product.name} 入库成功，当前库存: {inventory.quantity}')
+                messages.success(request, f'{product.name} 入库成功，当前库存: {inventory.quantity} ({warehouse.name})')
                 return redirect('inventory_list')
             else:
                 messages.error(request, f'入库失败: {result}')
@@ -174,17 +179,18 @@ def inventory_in(request):
 
 @login_required
 def inventory_out(request):
-    """出库视图"""
+    """出库视图（支持多仓库）"""
     if request.method == 'POST':
         form = InventoryTransactionForm(request.POST)
         if form.is_valid():
             product = form.cleaned_data['product']
+            warehouse = form.cleaned_data['warehouse']
             quantity = form.cleaned_data['quantity']
             notes = form.cleaned_data['notes']
             
-            # 先检查库存是否足够
-            if not check_inventory(product, quantity):
-                messages.error(request, f'出库失败: {product.name} 当前库存不足')
+            # 先检查库存是否足够（支持多仓库）
+            if not check_inventory(product, quantity, warehouse):
+                messages.error(request, f'出库失败: {product.name} ({warehouse.name}) 当前库存不足')
                 return render(request, 'inventory/inventory_transaction_form.html', {
                     'form': form,
                     'form_title': '商品出库',
@@ -195,6 +201,7 @@ def inventory_out(request):
             # 使用工具函数更新库存
             success, inventory, result = update_inventory(
                 product=product,
+                warehouse=warehouse,
                 quantity=-quantity,  # 负数表示出库
                 transaction_type='OUT',
                 operator=request.user,
@@ -206,12 +213,12 @@ def inventory_out(request):
                 OperationLog.objects.create(
                     operator=request.user,
                     operation_type='INVENTORY',
-                    details=f'出库: {product.name} x {quantity}',
+                    details=f'出库: {product.name} x {quantity} <- {warehouse.name}',
                     related_object_id=inventory.id,
                     related_content_type=ContentType.objects.get_for_model(inventory)
                 )
                 
-                messages.success(request, f'{product.name} 出库成功，当前库存: {inventory.quantity}')
+                messages.success(request, f'{product.name} 出库成功，当前库存: {inventory.quantity} ({warehouse.name})')
                 return redirect('inventory_list')
             else:
                 messages.error(request, f'出库失败: {result}')

@@ -36,24 +36,7 @@
                         </div>
                         <div class="col-md-6">
                             <h5>会员信息</h5>
-                            {% if sale.member %}
-                            <table class="table table-borderless">
-                                <tr>
-                                    <th width="40%">会员姓名:</th>
-                                    <td>{{ sale.member.name }}</td>
-                                </tr>
-                                <tr>
-                                    <th>会员电话:</th>
-                                    <td>{{ sale.member.phone }}</td>
-                                </tr>
-                                <tr>
-                                    <th>会员等级:</th>
-                                    <td>{{ sale.member.level.name }}</td>
-                                </tr>
-                            </table>
-                            {% else %}
                             <p class="text-muted">未选择会员</p>
-                            {% endif %}
                         </div>
                     </div>
 
@@ -122,35 +105,7 @@
                             {% endfor %}
                         </div>
 
-                        <!-- 会员余额支付 (仅当选择了会员且有支付方式为余额或混合支付时显示) -->
-                        <div id="balance-payment-section" class="mb-4" style="display: none;">
-                            <div class="card bg-light">
-                                <div class="card-body">
-                                    <h6>会员余额支付</h6>
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <div class="form-group">
-                                                <label>当前可用余额:</label>
-                                                <div class="form-control-plaintext">
-                                                    {% if sale.member %}
-                                                    ¥{{ sale.member.balance|floatformat:2 }}
-                                                    {% else %}
-                                                    ¥0.00
-                                                    {% endif %}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <div class="form-group">
-                                                <label for="balance_amount">使用余额金额:</label>
-                                                <input type="number" class="form-control" id="balance_amount" name="balance_amount" 
-                                                    step="0.01" min="0" max="{{ sale.member.balance|default:0 }}" value="0">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        
 
                         <div class="form-group mb-4">
                             <label for="remark">备注:</label>
@@ -198,21 +153,7 @@
                         <h6 class="text-muted">应付金额</h6>
                         <p class="fs-4 fw-bold text-danger">¥{{ sale.final_amount|floatformat:2 }}</p>
                     </div>
-                    {% if sale.member %}
-                    <hr>
-                    <div class="mb-3">
-                        <h6 class="text-muted">会员</h6>
-                        <p>{{ sale.member.name }} ({{ sale.member.phone }})</p>
-                    </div>
-                    <div class="mb-3">
-                        <h6 class="text-muted">折扣率</h6>
-                        <p>{{ sale.member.level.discount|multiply:10|floatformat:1 }}折</p>
-                    </div>
-                    <div class="mb-3">
-                        <h6 class="text-muted">可用余额</h6>
-                        <p>¥{{ sale.member.balance|floatformat:2 }}</p>
-                    </div>
-                    {% endif %}
+                    
                 </div>
             </div>
         </div>
@@ -226,19 +167,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const balanceSection = document.getElementById('balance-payment-section');
     
     function updateBalanceSection() {
-        const selectedPayment = document.querySelector('input[name="payment_method"]:checked')?.value;
-        if (selectedPayment === 'balance' || selectedPayment === 'mixed') {
-            {% if sale.member %}
-            balanceSection.style.display = 'block';
-            {% else %}
-            balanceSection.style.display = 'none';
-            alert('需要选择会员才能使用余额支付');
-            document.getElementById('payment_cash').checked = true;
-            {% endif %}
-        } else {
+            const selectedPayment = document.querySelector('input[name="payment_method"]:checked')?.value;
             balanceSection.style.display = 'none';
         }
-    }
     
     // 初始化时检查一次
     updateBalanceSection();

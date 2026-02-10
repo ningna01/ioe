@@ -9,6 +9,9 @@ from .inventory import (
     check_inventory, update_inventory, StockAlert
 )
 
+# 仓库相关模型
+from .warehouse import Warehouse, WarehouseInventory
+
 # 库存盘点相关模型
 from .inventory_check import InventoryCheck, InventoryCheckItem
 
@@ -24,17 +27,17 @@ from .common import OperationLog, SystemConfig
 # 导出所有模型，使它们可以通过inventory.models访问
 __all__ = [
     # 产品模型
-    'Product', 'Category', 'Color', 'Size', 'Store', 'ProductImage', 'ProductBatch', 'Supplier','Category',
+    'Product', 'Category', 'Color', 'Size', 'Store', 'ProductImage', 'ProductBatch', 'Supplier',
     
     # 库存模型
     'Inventory', 'InventoryTransaction', 'check_inventory', 
     'update_inventory', 'StockAlert',
     
+    # 仓库模型
+    'Warehouse', 'WarehouseInventory',
+    
     # 库存盘点模型
     'InventoryCheck', 'InventoryCheckItem',
-    
-    # 会员模型
-    # 'Member', 'MemberLevel', 'RechargeRecord', 'MemberTransaction',
     
     # 销售模型
     'Sale', 'SaleItem',

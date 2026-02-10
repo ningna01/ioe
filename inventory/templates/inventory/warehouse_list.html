@@ -1,0 +1,100 @@
+{% extends 'inventory/base.html' %}
+
+{% block title %}仓库管理 - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+                    <div>
+                        <h2 class="card-title mb-0">仓库列表</h2>
+                        <p class="text-muted mb-md-0">管理所有仓库信息</p>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="{% url 'warehouse_create' %}" class="btn btn-primary">
+                            <i class="bi bi-plus-circle me-1"></i> 添加仓库
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive table-container">
+                    <table class="table table-striped table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>仓库名称</th>
+                                <th class="d-none d-md-table-cell">编码</th>
+                                <th class="d-none d-lg-table-cell">地址</th>
+                                <th class="d-none d-md-table-cell">商品种类</th>
+                                <th class="d-none d-md-table-cell">总数量</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for warehouse in warehouses %}
+                            <tr>
+                                <td>
+                                    <h6 class="mb-0">{{ warehouse.name }}</h6>
+                                    {% if warehouse.is_default %}
+                                    <span class="badge bg-primary">默认</span>
+                                    {% endif %}
+                                </td>
+                                <td class="d-none d-md-table-cell">
+                                    <code>{{ warehouse.code }}</code>
+                                </td>
+                                <td class="d-none d-lg-table-cell">
+                                    {{ warehouse.address|default:'-'|truncatewords:5 }}
+                                </td>
+                                <td class="d-none d-md-table-cell">
+                                    <span class="badge bg-info">{{ warehouse.product_count|default:0 }}</span>
+                                </td>
+                                <td class="d-none d-md-table-cell">
+                                    {{ warehouse.total_quantity|default:0 }}
+                                </td>
+                                <td>
+                                    {% if warehouse.is_active %}
+                                    <span class="badge bg-success">启用</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">禁用</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="btn-group">
+                                        <a href="{% url 'warehouse_edit' warehouse.id %}" class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <a href="{% url 'warehouse_delete' warehouse.id %}" class="btn btn-sm btn-outline-danger">
+                                            <i class="bi bi-trash"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="7" class="text-center py-4">
+                                    <div class="text-muted">
+                                        <i class="bi bi-building fs-1 d-block mb-2"></i>
+                                        <p class="mb-1">暂无仓库信息</p>
+                                        <p class="small">点击上方按钮添加第一个仓库</p>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

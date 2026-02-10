@@ -49,13 +49,7 @@
                     </li>
                     <li class="list-group-item d-flex justify-content-between">
                         <span class="text-muted">客户:</span>
-                        <span>
-                            {% if sale.member %}
-                            <span class="badge bg-info text-dark">{{ sale.member.name }}</span>
-                            {% else %}
-                            <span class="text-muted">散客</span>
-                            {% endif %}
-                        </span>
+                        <span class="text-muted">散客</span>
                     </li>
                     <li class="list-group-item d-flex justify-content-between">
                         <span class="text-muted">状态:</span>
@@ -109,43 +103,17 @@
         </div>
     </div>
 
-    <!-- 会员信息 -->
+        <!-- 其他信息 -->
     <div class="col-lg-4 mb-4">
         <div class="card h-100 shadow-sm">
             <div class="card-header bg-info text-white">
-                <h4 class="card-title mb-0">{% if sale.member %}会员信息{% else %}其他信息{% endif %}</h4>
+                <h4 class="card-title mb-0">其他信息</h4>
             </div>
             <div class="card-body">
-                {% if sale.member %}
-                <ul class="list-group list-group-flush">
-                    <li class="list-group-item d-flex justify-content-between">
-                        <span class="text-muted">会员姓名:</span>
-                        <span>{{ sale.member.name }}</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between">
-                        <span class="text-muted">会员等级:</span>
-                        <span class="badge" style="background-color: #{{ sale.member.level.color }}">{{ sale.member.level.name }}</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between">
-                        <span class="text-muted">联系电话:</span>
-                        <span>{{ sale.member.phone }}</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between">
-                        <span class="text-muted">积分增加:</span>
-                        <span>+{{ sale.final_amount|floatformat:0 }}</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between">
-                        <span class="btn btn-sm btn-outline-secondary mt-2 disabled">
-                            <i class="bi bi-person-badge me-1"></i> 查看会员详情
-                        </a>
-                    </li>
-                </ul>
-                {% else %}
                 <div class="text-center py-4">
                     <i class="bi bi-person-x text-muted" style="font-size: 2rem;"></i>
                     <p class="mt-3 text-muted">此销售单未关联会员</p>
                 </div>
-                {% endif %}
             </div>
         </div>
     </div>

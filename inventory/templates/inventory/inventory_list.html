@@ -210,30 +210,30 @@
     document.addEventListener('DOMContentLoaded', function() {
         // 库存状态筛选
         const stockFilterButtons = document.querySelectorAll('#stockFilter button');
+
+        function applyFilter(filterType) {
+            stockFilterButtons.forEach(function(btn) {
+                btn.classList.toggle('active', btn.dataset.filter === filterType);
+            });
+            const rows = document.querySelectorAll('tbody tr');
+            rows.forEach(function(row) {
+                if (!row.querySelector('td:first-child')) return;
+                const stockStatus = row.dataset.stockStatus;
+                row.style.display = (filterType === 'all' || stockStatus === filterType) ? '' : 'none';
+            });
+        }
+
         stockFilterButtons.forEach(function(button) {
             button.addEventListener('click', function() {
-                // 移除所有按钮的active类
-                stockFilterButtons.forEach(btn => btn.classList.remove('active'));
-                // 添加当前按钮的active类
-                this.classList.add('active');
-                
-                const filterType = this.dataset.filter;
-                const rows = document.querySelectorAll('tbody tr');
-                
-                rows.forEach(function(row) {
-                    // 忽略空行
-                    if (!row.querySelector('td:first-child')) return;
-                    
-                    const stockStatus = row.dataset.stockStatus;
-                    
-                    if (filterType === 'all' || stockStatus === filterType) {
-                        row.style.display = '';
-                    } else {
-                        row.style.display = 'none';
-                    }
-                });
+                applyFilter(this.dataset.filter);
             });
         });
+
+        // 从 URL 参数 ?filter=low 自动激活库存预警筛选
+        var urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('filter') === 'low') {
+            applyFilter('low');
+        }
     });
 </script>
 {% endblock %}

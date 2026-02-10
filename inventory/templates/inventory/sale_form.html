@@ -183,51 +183,7 @@
         margin-bottom: 15px;
     }
     
-    /* 会员区域样式 */
-    .member-section {
-        background-color: white;
-        border-radius: var(--border-radius);
-        padding: 15px;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
-    }
-    
-    .member-section-title {
-        color: var(--primary-color);
-        font-weight: 600;
-        margin-bottom: 10px;
-    }
-    
-    .member-info {
-        background-color: #f8f9fa;
-        border-radius: 5px;
-        padding: 15px;
-        margin-top: 15px;
-        border: 1px solid #dee2e6;
-    }
-    
-    .member-field {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 10px;
-        padding-bottom: 5px;
-        border-bottom: 1px dotted #e9ecef;
-    }
-    
-    .member-field:last-of-type {
-        border-bottom: none;
-    }
-    
-    .field-label {
-        color: #6c757d;
-        font-weight: 500;
-    }
-    
-    .field-value {
-        font-weight: 600;
-        color: #343a40;
-    }
-    
-    /* 支付方式区域 */
+
     .payment-section {
         background-color: white;
         border-radius: var(--border-radius);
@@ -288,15 +244,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 变量初始化
     const productSearchInput = document.getElementById('product-search-input');
     const productTableBody = document.getElementById('product-table-body');
-    // 会员相关变量 - 会员系统已停用，注释掉
-    /*
-    const memberIdInput = document.getElementById('member-id');
-    const memberInfoBox = document.getElementById('member-info-box');
-    */
-    const memberSearchInput = null; // 会员系统已停用
+    // 会员相关变量 - 会员系统已停用，移除
     const paymentButtons = document.querySelectorAll('.payment-btn');
     const paymentMethodInput = document.getElementById('payment-method');
-    const memberSearchInput = document.getElementById('member-search-input');
     window.updateTotalsTimeout = null; // 用于节流 updateTotals
     
     // 商品搜索处理
@@ -466,102 +416,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
     
-    // 会员搜索 - 会员系统已停用，注释掉此功能
-    /*
-    window.searchMember = function(query) {
-        if (!query || query.trim() === '') {
-            showAlert('warning', '请输入会员手机号或姓名');
-            return;
-        }
-        
-        fetch(`/api/member/search/${query}/`)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('网络请求失败');
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.success) {
-                    if (data.multiple_matches && data.members && data.members.length > 0) {
-                        showMemberSelectionModal(data.members);
-                    } else if (data.member_id) {
-                        selectMember(data.member_id, data.member_name, data.discount_rate, data.member_phone);
-                    }
-                } else {
-                    showAlert('info', data.message || '未找到会员');
-                }
-            })
-            .catch(error => {
-                console.error('搜索会员错误:', error);
-                showAlert('error', '查询会员信息失败');
-            });
-    }
-    */
-
-    // 选择会员 - 会员系统已停用，注释掉此功能
-    /*
-    window.selectMember = function(memberId, memberName, discountRate, phone) {
-        // 设置会员ID
-        if (memberIdInput) {
-            memberIdInput.value = memberId;
-        }
-        
-        // 显示会员信息
-        document.getElementById('member-name-value').textContent = memberName || '未知';
-        document.getElementById('member-phone-value').textContent = phone || '未知';
-        
-        // 计算并显示折扣
-        const discountText = discountRate < 1 ? `${(discountRate * 10).toFixed(1)}折` : '无折扣';
-        document.getElementById('member-discount-value').textContent = discountText;
-        
-        // 显示会员信息区域
-        if (memberInfoBox) memberInfoBox.style.display = 'block';
-        
-        // 更新总计
-        updateTotals();
-        showAlert('success', '已选择会员');
-        
-        // 清空搜索框
-        if (memberSearchInput) {
-            memberSearchInput.value = '';
-        }
-    }
-    */
-    
-    // 编辑会员 - 会员系统已停用，注释掉此功能
-    /*
-    window.editMember = function() {
-        const memberId = memberIdInput ? memberIdInput.value : '';
-        if (!memberId) {
-            showAlert('warning', '请先选择会员');
-            return;
-        }
-        
-        // 跳转到会员编辑页面
-        window.open(`/members/${memberId}/edit/`, '_blank');
-    }
-    */
-    
-    // 清除会员 - 会员系统已停用，注释掉此功能
-    /*
-    window.clearMember = function() {
-        // 清除会员ID
-        if (memberIdInput) {
-            memberIdInput.value = '';
-        }
-        
-        // 隐藏会员信息区域
-        if (memberInfoBox) {
-            memberInfoBox.style.display = 'none';
-        }
-        
-        // 更新总计
-        updateTotals();
-        showAlert('info', '已清除会员信息');
-    }
-    */
-    
     // 商品选择模态框 (确保添加事件监听时使用标准化的数据)
     function showProductSelectionModal(products) {
         const modalBody = document.getElementById('product-selection-content');
@@ -605,67 +459,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const modalElement = document.getElementById('product-selection-modal');
         if (!modalElement) return;
         const modal = new bootstrap.Modal(modalElement);
-        modal.show();
-    }
-    
-    // 会员选择模态框
-    function showMemberSelectionModal(members) {
-        const modalBody = document.getElementById('member-selection-content');
-        if (!modalBody) return;
-        
-        modalBody.innerHTML = '';
-        
-        members.forEach(member => {
-            const memberItem = document.createElement('div');
-            memberItem.className = 'card mb-2';
-            memberItem.innerHTML = `
-                <div class="card-body">
-                    <h5 class="card-title">${member.member_name}</h5>
-                    <p class="card-text">电话: ${member.member_phone}</p>
-                    <button class="btn btn-primary select-member-btn" 
-                        data-id="${member.member_id}" 
-                        data-name="${member.member_name}" 
-                        data-phone="${member.member_phone}" 
-                        data-discount="${member.discount_rate || 1}">
-                        选择此会员
-                    </button>
-                </div>
-            `;
-            modalBody.appendChild(memberItem);
-        });
-        
-        // 添加选择事件
-        document.querySelectorAll('.select-member-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const memberId = this.dataset.id;
-                const memberName = this.dataset.name;
-                const phone = this.dataset.phone;
-                const discountRate = parseFloat(this.dataset.discount);
-                
-                selectMember(memberId, memberName, discountRate, phone);
-                
-                // 关闭模态框
-                const modalElement = document.getElementById('member-selection-modal');
-                if (modalElement) {
-                    const modal = bootstrap.Modal.getInstance(modalElement);
-                    if (modal) {
-                         modal.hide();
-                         // **在模态框隐藏后，将焦点移回会员搜索框**
-                         modalElement.addEventListener('hidden.bs.modal', () => {
-                              const memberSearchInputElement = document.getElementById('member-search-input');
-                              if (memberSearchInputElement) {
-                                   memberSearchInputElement.focus();
-                              }
-                         }, { once: true }); // 确保事件只触发一次
-                    }
-                }
-            });
-        });
-        
-        // 显示模态框
-        const modalElementToShow = document.getElementById('member-selection-modal');
-        if (!modalElementToShow) return;
-        const modal = new bootstrap.Modal(modalElementToShow);
         modal.show();
     }
     
@@ -941,7 +734,7 @@ document.addEventListener('DOMContentLoaded', function() {
         subtotalCell.textContent = `¥${subtotal.toFixed(2)}`;
     }
     
-    // 更新总计 (增加健壮性)
+    // 更新总计 (增加健壮性，移除会员折扣逻辑)
     window.updateTotals = function() {
         let totalAmount = 0;
         const subtotalCells = productTableBody.querySelectorAll('tr[data-product-id] .subtotal'); // 更精确的选择器
@@ -959,43 +752,8 @@ document.addEventListener('DOMContentLoaded', function() {
              console.error("Element '#total-amount' not found.");
         }
         
-        // 计算折扣
-        let discountRate = 1; // 默认无折扣
-        let discountAmount = 0;
-        const memberIdInputElement = document.getElementById('member-id');
-        const memberId = memberIdInputElement ? memberIdInputElement.value : '';
-        
-        // 只有在有会员ID的情况下才考虑折扣
-        if (memberId) {
-            const discountTextElement = document.getElementById('member-discount-value');
-            const discountText = discountTextElement ? discountTextElement.textContent : '';
-            
-            if (discountText && discountText !== '无折扣') {
-                const match = discountText.match(/(\d+\.?\d*)折/);
-                if (match && match[1]) {
-                    discountRate = parseFloat(match[1]) / 10;
-                    if (isNaN(discountRate) || discountRate < 0 || discountRate > 1) {
-                        discountRate = 1; // 防御无效折扣率
-                        console.warn("Invalid discount rate parsed:", match[1]);
-                    }
-                } else {
-                    console.warn("Could not parse discount rate from:", discountText);
-                }
-            } else {
-                console.log("会员没有折扣或折扣信息不可用");
-            }
-        } else {
-            console.log("没有会员信息，不应用折扣");
-        }
-        
-        // 只有当折扣率<1时，才计算折扣金额
-        if (discountRate < 1) {
-            discountAmount = totalAmount * (1 - discountRate);
-            console.log(`应用折扣: ${discountRate}, 折扣金额: ${discountAmount.toFixed(2)}`);
-        } else {
-            discountAmount = 0;
-            console.log("不应用折扣，折扣金额为0");
-        }
+        // 折扣金额固定为0（会员系统已停用）
+        const discountAmount = 0;
         
         // 计算最终金额
         const finalAmount = totalAmount - discountAmount;
@@ -1197,16 +955,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 快捷键支持
     document.addEventListener('keydown', function(event) {
-        // F2 - 会员搜索功能已停用
-        /*
-        if (event.key === 'F2') {
-            event.preventDefault();
-            if (memberSearchInput) {
-                memberSearchInput.focus();
-            }
-        }
-        */
-        
         // F3 - 商品搜索
         if (event.key === 'F3') {
             event.preventDefault();
@@ -1302,7 +1050,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 <form id="sale-form" method="post">
                     {% csrf_token %}
-                    <input type="hidden" id="member-id" name="member" value="">
                     <input type="hidden" id="payment-method" name="payment_method" value="{{ form.payment_method.value|default:'cash' }}">
                     <input type="hidden" id="debug-info" name="debug_info" value="">
                     <input type="hidden" id="product-count" name="product_count" value="0">
@@ -1326,56 +1073,6 @@ document.addEventListener('DOMContentLoaded', function() {
             <!-- 收银员信息 -->
             <div class="cashier-info">
                 收银员：{{ request.user.username }}
-            </div>
-            
-            <!-- 会员搜索和信息区域 - 会员系统已停用，隐藏此区域 -->
-            <div class="member-section mb-4" style="display: none;">
-                <!-- 会员搜索 -->
-                <div class="member-search mb-3">
-                    <h5 class="member-section-title mb-2">会员查找</h5>
-                    <div class="input-group">
-                        <input type="text" id="member-search-input" class="form-control" placeholder="输入会员手机号或姓名">
-                        <button class="btn btn-primary" type="button" onclick="searchMember(document.getElementById('member-search-input').value)">
-                            <i class="bi bi-search"></i>
-                        </button>
-                    </div>
-                    <div class="text-muted small mt-1">会员系统已停用</div>
-                </div>
-
-                <!-- 会员信息显示 -->
-                <div class="member-info" id="member-info-box" style="display: {% if form.member.value %}block{% else %}none{% endif %}">
-                    <h5 class="mb-3">会员信息</h5>
-                    
-                    <div class="member-field">
-                        <div class="field-label">姓名：</div>
-                        <div class="field-value" id="member-name-value">{{ member_name|default:'未知' }}</div>
-                </div>
-
-                    <div class="member-field">
-                        <div class="field-label">电话：</div>
-                        <div class="field-value" id="member-phone-value">{{ member_phone|default:'未知' }}</div>
-                        </div>
-                    
-                    <div class="member-field">
-                        <div class="field-label">折扣率：</div>
-                        <div class="field-value" id="member-discount-value">
-                            {% if discount_rate and discount_rate < 1 %}
-                                {{ discount_rate|multiply:10|floatformat:1 }}折
-                            {% else %}
-                                无折扣
-                            {% endif %}
-                        </div>
-                    </div>
-                    
-                    <div class="mt-3">
-                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="editMember()">
-                            <i class="bi bi-pencil"></i> 编辑会员
-                        </button>
-                        <button type="button" class="btn btn-outline-danger btn-sm ms-2" onclick="clearMember()">
-                            <i class="bi bi-x-circle"></i> 清除
-                        </button>
-                    </div>
-                        </div>
             </div>
             
             <!-- 支付方式 -->
@@ -1422,21 +1119,6 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <div class="modal-body" id="product-selection-content">
                 <!-- 动态生成的商品列表 -->
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 会员选择模态框 -->
-<div class="modal fade" id="member-selection-modal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">选择会员</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body" id="member-selection-content">
-                <!-- 动态生成的会员列表 -->
             </div>
         </div>
     </div>

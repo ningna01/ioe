@@ -3,15 +3,12 @@ from django.contrib.auth.models import User
 from decimal import Decimal
 
 from inventory.models import (
-    Category, 
-    Product, 
-    Inventory, 
+    Category,
+    Product,
+    Inventory,
     InventoryTransaction,
-    # Member,
-    # MemberLevel,
     Sale,
     SaleItem,
-    RechargeRecord,
     InventoryCheck,
     InventoryCheckItem
 )

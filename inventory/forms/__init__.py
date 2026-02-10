@@ -12,6 +12,7 @@ from .report_forms import (
     ReportFilterForm, SalesReportForm
 )
 from .system_forms import SystemConfigForm, StoreForm
+from .warehouse_forms import WarehouseForm, WarehouseSelectionForm
 
 # 设置StoreForm的model
 from django.apps import apps
@@ -40,6 +41,9 @@ __all__ = [
     
     # 库存管理表单
     'InventoryTransactionForm',
+    
+    # 仓库表单
+    'WarehouseForm', 'WarehouseSelectionForm',
     
     # 销售表单
     'SaleForm', 'SaleItemForm',

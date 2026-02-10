@@ -35,6 +35,7 @@ from .views import sales as sales_views
 from .views import product as product_views
 from .views import inventory as inventory_views
 from .views import system as system_views  # 导入重构后的系统视图模块
+from .views import warehouse as warehouse_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -92,6 +93,12 @@ urlpatterns = [
     path('categories/create/', views_category.category_create, name='category_create'),
     path('categories/<int:category_id>/edit/', views_category.category_edit, name='category_edit'),
     path('categories/<int:category_id>/delete/', views_category.category_delete, name='category_delete'),
+    
+    # 仓库管理URL
+    path('warehouses/', warehouse_views.warehouse_list, name='warehouse_list'),
+    path('warehouses/create/', warehouse_views.warehouse_create, name='warehouse_create'),
+    path('warehouses/<int:warehouse_id>/edit/', warehouse_views.warehouse_edit, name='warehouse_edit'),
+    path('warehouses/<int:warehouse_id>/delete/', warehouse_views.warehouse_delete, name='warehouse_delete'),
     
     # 库存盘点URL
     path('inventory-checks/', views_inventory_check.inventory_check_list, name='inventory_check_list'),

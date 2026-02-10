@@ -53,13 +53,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // 会员搜索输入事件 - 移除字符数限制
+    // 会员搜索输入事件 - 会员功能已禁用，移除搜索逻辑
     if (memberSearchInput) {
         memberSearchInput.addEventListener('input', function() {
-            const query = this.value.trim();
-            if (query) {
-                searchMemberByPhone(query);
-            }
+            // 会员功能已禁用，无需处理输入
+            return;
         });
     }
     
@@ -143,8 +141,13 @@ document.addEventListener('DOMContentLoaded', function() {
         showAlert('success', `已选择商品: ${product.name}`);
     }
     
-    // 通过手机号搜索会员 - 支持模糊匹配
+    // 通过手机号搜索会员 - 会员功能已禁用，移除API调用
     function searchMemberByPhone(query) {
+        console.log('会员功能已禁用，忽略搜索请求:', query);
+        showAlert('warning', '会员功能已禁用，无法搜索会员');
+        return;
+        
+        /* 原API调用代码已注释
         console.log('搜索会员，查询:', query);
         
         fetch(`/api/member/search/${query}/`)
@@ -176,10 +179,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('搜索会员错误:', error);
                 showAlert('error', '查询会员信息失败');
             });
+        */
     }
     
-    // 选择会员
+    // 选择会员 - 会员功能已禁用，移除API调用
     function selectMember(memberId, memberName, discountRate) {
+        console.log('会员功能已禁用，忽略选择请求:', memberId, memberName);
+        showAlert('warning', '会员功能已禁用，无法选择会员');
+        return;
+        
+        /* 原API调用代码已注释
         // 发送会员选择请求
         if (saleId === null || saleId === undefined) {
              showAlert('error', '销售单ID无效，无法选择会员');
@@ -228,6 +237,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('选择会员错误:', error);
             showAlert('error', '选择会员失败，请重试');
         });
+        */
     }
     
     // 显示商品选择模态框
@@ -277,8 +287,13 @@ document.addEventListener('DOMContentLoaded', function() {
         productModal.show();
     }
     
-    // 显示会员选择模态框
+    // 显示会员选择模态框 - 会员功能已禁用，移除显示
     function showMemberSelectionModal(members) {
+        console.log('会员功能已禁用，忽略显示会员选择模态框');
+        showAlert('warning', '会员功能已禁用，无法选择会员');
+        return;
+        
+        /* 原代码已注释
         const modalContent = document.getElementById('memberSelectionContent');
         if (!modalContent) return;
         
@@ -319,6 +334,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // 显示模态框
         const memberModal = new bootstrap.Modal(document.getElementById('memberSelectionModal'));
         memberModal.show();
+        */
     }
     
     // 显示消息通知
@@ -378,15 +394,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 快捷键支持
     document.addEventListener('keydown', function(event) {
-        // F2 - 聚焦会员搜索
-        if (event.key === 'F2') {
-            event.preventDefault();
-            const memberSearchInput = document.getElementById('item-member-search-input');
-            if (memberSearchInput) {
-                memberSearchInput.focus();
-            }
-        }
-        
         // F3 - 聚焦条码输入
         if (event.key === 'F3') {
             event.preventDefault();
@@ -406,33 +413,43 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 将取消会员选择的逻辑移到这里
+    // 取消会员选择按钮 - 会员功能已禁用，移除API调用
     const cancelMemberButton = document.getElementById('cancel-member-selection-btn');
-    if (cancelMemberButton && saleId !== null && saleId !== undefined) {
+    if (cancelMemberButton) {
         cancelMemberButton.addEventListener('click', function(event) {
-             event.preventDefault();
-             const cancelMemberUrl = `/sale/${saleId}/select-member/`;
-             fetch(cancelMemberUrl, {
-                 method: 'POST',
-                 headers: {
-                     'Content-Type': 'application/x-www-form-urlencoded',
-                     'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]').value
-                 },
-                 body: 'member_id=' // 发送空的 member_id 来清除
-             })
-             .then(response => response.json())
-             .then(result => {
-                 if (result.success) {
-                      showAlert('success', '已取消会员选择，正在刷新...');
-                      setTimeout(() => window.location.reload(), 1500); // 延迟刷新给用户看提示
-                 } else {
-                      showAlert('error', result.message || '取消选择会员失败');
-                 }
-             })
-             .catch(error => {
-                 console.error('取消选择会员错误:', error);
-                 showAlert('error', '取消选择会员操作失败');
-             });
+            event.preventDefault();
+            console.log('会员功能已禁用，忽略取消会员选择请求');
+            showAlert('warning', '会员功能已禁用，无法取消会员选择');
+            return;
+            
+            /* 原API调用代码已注释
+            if (saleId === null || saleId === undefined) {
+                showAlert('error', '销售单ID无效');
+                return;
+            }
+            const cancelMemberUrl = `/sale/${saleId}/select-member/`;
+            fetch(cancelMemberUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]').value
+                },
+                body: 'member_id=' // 发送空的 member_id 来清除
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    showAlert('success', '已取消会员选择，正在刷新...');
+                    setTimeout(() => window.location.reload(), 1500); // 延迟刷新给用户看提示
+                } else {
+                    showAlert('error', result.message || '取消选择会员失败');
+                }
+            })
+            .catch(error => {
+                console.error('取消选择会员错误:', error);
+                showAlert('error', '取消选择会员操作失败');
+            });
+            */
         });
     }
 
@@ -547,13 +564,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="mb-3">
                         <label for="item-member-search-input" class="form-label">会员查找</label>
                         <div class="input-group">
-                            <input type="text" class="form-control" id="item-member-search-input" 
-                                placeholder="输入手机号或姓名..." autocomplete="off" disabled>
-                            <button class="btn btn-outline-secondary" type="button" onclick="alert('会员功能已禁用');">
+                            <input type="text" class="form-control bg-light" id="item-member-search-input" 
+                                placeholder="会员功能已禁用" autocomplete="off" disabled readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="showAlert('warning', '会员功能已禁用，无法添加新会员');">
                                 <i class="bi bi-plus"></i> 新增
                             </button>
                         </div>
-                        <small class="form-text text-muted">输入手机号或姓名即时搜索，支持模糊匹配</small>
+                        <small class="form-text text-muted">会员功能已暂时关闭</small>
                     </div>
                     
                     <!-- 会员详情区域 -->
@@ -582,10 +599,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     
                     <!-- 无会员提示 -->
-                    <div id="no-member-message" class="{% if sale.member %}d-none{% endif %}">
-                        <div class="alert alert-info" role="alert">
-                            <i class="bi bi-info-circle me-2"></i> 搜索并选择会员以应用折扣
-                        </div>
+                    <div id="no-member-message" class="alert alert-secondary" role="alert">
+                        <i class="bi bi-info-circle me-2"></i> 会员功能已禁用，暂时无法使用会员折扣
                     </div>
                     
                     <!-- 销售汇总信息 -->

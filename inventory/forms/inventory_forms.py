@@ -1,12 +1,27 @@
 from django import forms
 
-from inventory.models import InventoryTransaction, Product
+from inventory.models import InventoryTransaction, Product, Warehouse
 
 
 class InventoryTransactionForm(forms.ModelForm):
+    """入库表单（支持多仓库）"""
+    
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.filter(is_active=True),
+        label='仓库',
+        help_text='请选择入库的目标仓库',
+        empty_label='请选择仓库',
+        required=True,
+        widget=forms.Select(attrs={
+            'class': 'form-control form-select',
+            'aria-label': '仓库',
+            'style': 'height: 48px; font-size: 16px;'
+        })
+    )
+    
     class Meta:
         model = InventoryTransaction
-        fields = ['product', 'quantity', 'notes']
+        fields = ['warehouse', 'product', 'quantity', 'notes']
         widgets = {
             'product': forms.Select(attrs={
                 'class': 'form-control form-select',
@@ -35,7 +50,14 @@ class InventoryTransactionForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # 使用select_related优化查询
-        self.fields['product'].queryset = Product.objects.all().select_related('category')
+        self.fields['product'].queryset = Product.objects.filter(is_active=True).select_related('category')
+        
+        # 设置默认仓库为初始值
+        try:
+            default_warehouse = Warehouse.objects.get(is_default=True)
+            self.fields['warehouse'].initial = default_warehouse.pk
+        except Warehouse.DoesNotExist:
+            pass  # 没有默认仓库时不设置初始值
         
         # 添加响应式布局的辅助类
         for field in self.fields.values():
@@ -47,4 +69,10 @@ class InventoryTransactionForm(forms.ModelForm):
         quantity = self.cleaned_data.get('quantity')
         if quantity is not None and quantity <= 0:
             raise forms.ValidationError('数量必须大于0')
-        return quantity 
+        return quantity
+    
+    def clean_warehouse(self):
+        warehouse = self.cleaned_data.get('warehouse')
+        if warehouse and not warehouse.is_active:
+            raise forms.ValidationError('所选仓库已被禁用，请选择其他仓库')
+        return warehouse 
