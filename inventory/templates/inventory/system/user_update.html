@@ -87,8 +87,7 @@
                                 <div class="col-md-4 mb-2">
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" name="groups" id="group_{{ group.id }}" value="{{ group.id }}" 
-                                               {% if group in user.groups.all %}checked{% endif %}
-                                               {% if form_data.groups and group.id|stringformat:"i" in form_data.groups %}checked{% endif %}>
+                                               {% if group.id|stringformat:"s" in selected_group_ids %}checked{% endif %}>
                                         <label class="form-check-label" for="group_{{ group.id }}">
                                             {{ group.name }}
                                         </label>
@@ -96,6 +95,44 @@
                                 </div>
                                 {% endfor %}
                             </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">仓库授权</label>
+                            <div class="alert alert-info py-2">
+                                <i class="fas fa-info-circle me-1"></i> 普通用户仅可访问已授权仓库的数据；如已选择仓库，必须指定一个默认仓库。
+                            </div>
+                            {% if warehouses %}
+                            <div class="row">
+                                {% for warehouse in warehouses %}
+                                <div class="col-md-6 mb-2">
+                                    <div class="border rounded p-2">
+                                        <div class="form-check">
+                                            <input class="form-check-input warehouse-checkbox" type="checkbox"
+                                                   name="warehouse_ids" id="warehouse_{{ warehouse.id }}" value="{{ warehouse.id }}"
+                                                   {% if warehouse.id|stringformat:"s" in selected_warehouse_ids %}checked{% endif %}>
+                                            <label class="form-check-label" for="warehouse_{{ warehouse.id }}">
+                                                {{ warehouse.name }} ({{ warehouse.code }})
+                                            </label>
+                                        </div>
+                                        <div class="form-check ms-4 mt-1">
+                                            <input class="form-check-input warehouse-default-radio" type="radio"
+                                                   name="default_warehouse_id" id="default_warehouse_{{ warehouse.id }}" value="{{ warehouse.id }}"
+                                                   {% if default_warehouse_id == warehouse.id|stringformat:"s" %}checked{% endif %}
+                                                   {% if warehouse.id|stringformat:"s" not in selected_warehouse_ids %}disabled{% endif %}>
+                                            <label class="form-check-label text-muted" for="default_warehouse_{{ warehouse.id }}">
+                                                设为默认仓库
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="alert alert-warning mb-0">
+                                <i class="fas fa-exclamation-triangle me-1"></i> 当前没有可用仓库，请先在仓库管理中创建并启用仓库。
+                            </div>
+                            {% endif %}
                         </div>
                         
                         <!-- 状态控制 -->
@@ -202,14 +239,65 @@
         const password = document.getElementById('new_password');
         const passwordConfirm = document.getElementById('new_password_confirm');
         const form = document.getElementById('userForm');
+        const warehouseCheckboxes = document.querySelectorAll('.warehouse-checkbox');
+        const warehouseDefaultRadios = document.querySelectorAll('.warehouse-default-radio');
         
         form.addEventListener('submit', function(e) {
             if (password.value && password.value !== passwordConfirm.value) {
                 e.preventDefault();
                 alert('两次输入的密码不一致，请重新输入。');
                 passwordConfirm.focus();
+                return;
+            }
+
+            const checkedWarehouses = Array.from(warehouseCheckboxes).filter(item => item.checked);
+            if (checkedWarehouses.length > 0) {
+                const selectedDefault = Array.from(warehouseDefaultRadios).find(item => item.checked && !item.disabled);
+                if (!selectedDefault) {
+                    e.preventDefault();
+                    alert('已选择仓库时必须指定默认仓库。');
+                }
             }
         });
+
+        function refreshDefaultWarehouseState() {
+            warehouseCheckboxes.forEach(checkbox => {
+                const matchedRadio = document.querySelector('.warehouse-default-radio[value="' + checkbox.value + '"]');
+                if (!matchedRadio) {
+                    return;
+                }
+                matchedRadio.disabled = !checkbox.checked;
+                if (!checkbox.checked && matchedRadio.checked) {
+                    matchedRadio.checked = false;
+                }
+            });
+
+            const checkedWarehouses = Array.from(warehouseCheckboxes).filter(item => item.checked);
+            const selectedDefault = Array.from(warehouseDefaultRadios).find(item => item.checked && !item.disabled);
+            if (checkedWarehouses.length > 0 && !selectedDefault) {
+                const firstEnabled = Array.from(warehouseDefaultRadios).find(item => !item.disabled);
+                if (firstEnabled) {
+                    firstEnabled.checked = true;
+                }
+            }
+        }
+
+        warehouseCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', refreshDefaultWarehouseState);
+        });
+        warehouseDefaultRadios.forEach(radio => {
+            radio.addEventListener('change', function() {
+                if (!this.checked) {
+                    return;
+                }
+                const matchedCheckbox = document.querySelector('.warehouse-checkbox[value="' + this.value + '"]');
+                if (matchedCheckbox && !matchedCheckbox.checked) {
+                    matchedCheckbox.checked = true;
+                }
+                refreshDefaultWarehouseState();
+            });
+        });
+        refreshDefaultWarehouseState();
         
         // 快速设置用户角色
         const salesBtn = document.getElementById('salesBtn');

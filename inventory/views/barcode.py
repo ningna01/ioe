@@ -11,6 +11,7 @@ from inventory.models.common import OperationLog
 from inventory.forms import ProductForm  # 直接从forms包导入需要的表单
 from inventory.ali_barcode_service import AliBarcodeService
 from inventory.services.product_service import search_products
+from inventory.services.stock_scope_service import StockScopeService
 
 # 外部条码服务API配置（示例用，实际应替换为自己的API密钥）
 BARCODE_API_APP_KEY = "your_app_key"
@@ -82,16 +83,18 @@ def barcode_product_create(request):
             except ValueError:
                 initial_stock = 0
                 
-            # 检查是否已存在该商品的库存记录
-            inventory, created = inventory.models.Inventory.objects.get_or_create(
-                product=product,
-                defaults={'quantity': initial_stock}
-            )
-            
-            # 如果已存在库存记录，则更新数量
-            if not created:
-                inventory.quantity += initial_stock
-                inventory.save()
+            # 确保库存档案存在；数量变更统一走库存服务入口
+            inventory.models.Inventory.objects.get_or_create(product=product)
+            if initial_stock > 0:
+                success, _, stock_result = inventory.models.update_inventory(
+                    product=product,
+                    quantity=initial_stock,
+                    transaction_type='IN',
+                    operator=request.user,
+                    notes='条码建档时设置初始库存'
+                )
+                if not success:
+                    messages.warning(request, f'商品已创建，但初始库存写入失败: {stock_result}')
             
             # 记录操作日志
             OperationLog.objects.create(
@@ -127,12 +130,8 @@ def barcode_lookup(request):
     # 首先检查数据库中是否已存在该条码的商品
     try:
         product = inventory.models.Product.objects.get(barcode=barcode)
-        # 获取库存信息
-        try:
-            inventory = inventory.models.Inventory.objects.get(product=product)
-            stock = inventory.quantity
-        except inventory.models.Inventory.DoesNotExist:
-            stock = 0
+        warehouse_ids = StockScopeService.resolve_request_warehouse_ids(request)
+        stock = StockScopeService.get_product_stock(product, warehouse_ids=warehouse_ids)
             
         return JsonResponse({
             'success': True,
@@ -172,15 +171,11 @@ def barcode_scan(request):
 
 def product_by_barcode(request, barcode):
     """根据条码查询商品信息的API"""
+    warehouse_ids = StockScopeService.resolve_request_warehouse_ids(request)
     try:
         # 先尝试精确匹配条码
         product = inventory.models.Product.objects.get(barcode=barcode)
-        # 获取库存信息
-        try:
-            inventory_obj = inventory.models.Inventory.objects.get(product=product)
-            stock = inventory_obj.quantity
-        except inventory.models.Inventory.DoesNotExist:
-            stock = 0
+        stock = StockScopeService.get_product_stock(product, warehouse_ids=warehouse_ids)
             
         return JsonResponse({
             'success': True,
@@ -205,12 +200,7 @@ def product_by_barcode(request, barcode):
             # 如果只有一个匹配结果
             if products.count() == 1:
                 product = products.first()
-                # 获取库存信息
-                try:
-                    inventory_obj = inventory.models.Inventory.objects.get(product=product)
-                    stock = inventory_obj.quantity
-                except inventory.models.Inventory.DoesNotExist:
-                    stock = 0
+                stock = StockScopeService.get_product_stock(product, warehouse_ids=warehouse_ids)
                     
                 return JsonResponse({
                     'success': True,
@@ -228,11 +218,7 @@ def product_by_barcode(request, barcode):
             else:
                 product_list = []
                 for product in products:
-                    try:
-                        inventory_obj = inventory.models.Inventory.objects.get(product=product)
-                        stock = inventory_obj.quantity
-                    except inventory.models.Inventory.DoesNotExist:
-                        stock = 0
+                    stock = StockScopeService.get_product_stock(product, warehouse_ids=warehouse_ids)
                         
                     product_list.append({
                         'product_id': product.id,
@@ -382,15 +368,13 @@ def product_search_api(request):
     
     # 使用service层搜索商品
     products = search_products(query, active_only=True)
+    warehouse_ids = StockScopeService.resolve_request_warehouse_ids(request)
+    stock_map = StockScopeService.get_bulk_product_stock_map(products[:10], warehouse_ids=warehouse_ids)
     
     # 格式化返回数据
     result = []
     for product in products[:10]:  # 限制返回10条结果
-        try:
-            inventory_obj = inventory.models.Inventory.objects.get(product=product)
-            stock = inventory_obj.quantity
-        except inventory.models.Inventory.DoesNotExist:
-            stock = 0
+        stock = stock_map.get(product.id, 0)
             
         result.append({
             'id': product.id,

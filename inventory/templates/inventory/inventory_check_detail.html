@@ -44,6 +44,10 @@
                             <td>{{ inventory_check.created_by.username }}</td>
                         </tr>
                         <tr>
+                            <th>盘点仓库:</th>
+                            <td>{{ inventory_check.warehouse.name|default:"默认仓库" }}</td>
+                        </tr>
+                        <tr>
                             <th>创建时间:</th>
                             <td>{{ inventory_check.created_at|date:"Y-m-d H:i" }}</td>
                         </tr>

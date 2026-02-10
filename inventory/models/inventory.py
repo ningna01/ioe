@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
 from .product import Product
-from .warehouse import Warehouse, WarehouseInventory
+from .warehouse import Warehouse
 
 
 class Inventory(models.Model):
@@ -80,81 +80,29 @@ class InventoryTransaction(models.Model):
 # 添加库存工具函数
 def check_inventory(product, quantity, warehouse=None):
     """检查库存是否足够"""
-    if warehouse:
-        # 多仓库模式：检查指定仓库的库存
-        try:
-            inventory = WarehouseInventory.objects.get(product=product, warehouse=warehouse)
-            return inventory.quantity >= quantity
-        except WarehouseInventory.DoesNotExist:
-            return False
-    else:
-        # 单仓库模式：检查全局库存
-        try:
-            inventory = Inventory.objects.get(product=product)
-            return inventory.quantity >= quantity
-        except Inventory.DoesNotExist:
-            return False
+    from inventory.services.warehouse_inventory_service import WarehouseInventoryService
+
+    return WarehouseInventoryService.check_stock(
+        product=product,
+        quantity=quantity,
+        warehouse=warehouse,
+    )
 
 
 def update_inventory(product, quantity, transaction_type, operator, warehouse=None, notes=''):
     """更新库存并记录交易"""
+    from inventory.services.warehouse_inventory_service import WarehouseInventoryService
+
     try:
-        if warehouse:
-            # 多仓库模式：更新仓库库存
-            inventory, created = WarehouseInventory.objects.get_or_create(
-                product=product,
-                warehouse=warehouse,
-                defaults={'quantity': 0, 'warning_level': 10}
-            )
-            
-            # 更新库存数量
-            old_quantity = inventory.quantity
-            inventory.quantity += quantity
-            
-            # 确保库存不为负数
-            if inventory.quantity < 0:
-                raise ValidationError(f"仓库库存不足: {product.name} ({warehouse.name}), 当前库存: {old_quantity}, 请求数量: {abs(quantity)}")
-            
-            inventory.save()
-            
-            # 记录库存交易
-            transaction = InventoryTransaction.objects.create(
-                product=product,
-                warehouse=warehouse,
-                transaction_type=transaction_type,
-                quantity=abs(quantity),
-                operator=operator,
-                notes=notes
-            )
-            
-            return True, inventory, transaction
-        else:
-            # 单仓库模式：更新全局库存（向后兼容）
-            inventory, created = Inventory.objects.get_or_create(
-                product=product,
-                defaults={'quantity': 0}
-            )
-            
-            # 更新库存数量
-            old_quantity = inventory.quantity
-            inventory.quantity += quantity
-            
-            # 确保库存不为负数
-            if inventory.quantity < 0:
-                raise ValidationError(f"库存不足: {product.name}, 当前库存: {old_quantity}, 请求数量: {abs(quantity)}")
-            
-            inventory.save()
-            
-            # 记录库存交易
-            transaction = InventoryTransaction.objects.create(
-                product=product,
-                transaction_type=transaction_type,
-                quantity=abs(quantity),
-                operator=operator,
-                notes=notes
-            )
-            
-            return True, inventory, transaction
+        inventory, transaction = WarehouseInventoryService.update_stock(
+            product=product,
+            quantity=quantity,
+            transaction_type=transaction_type,
+            operator=operator,
+            warehouse=warehouse,
+            notes=notes,
+        )
+        return True, inventory, transaction
     except Exception as e:
         return False, None, str(e)
 

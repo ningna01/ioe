@@ -10,8 +10,32 @@ from datetime import datetime, timedelta
 from .forms import DateRangeForm, TopProductsForm, InventoryTurnoverForm
 from .services.report_service import ReportService
 from .services.export_service import ExportService
+from .services.warehouse_scope_service import WarehouseScopeService
 from .utils.logging import log_view_access
 from .permissions.decorators import permission_required
+
+
+def _resolve_report_scope(request):
+    warehouse_param = (
+        request.POST.get('warehouse')
+        if request.method == 'POST'
+        else request.GET.get('warehouse', 'all')
+    )
+    return WarehouseScopeService.resolve_warehouse_selection(
+        user=request.user,
+        warehouse_param=warehouse_param,
+        include_all_option=True,
+    )
+
+
+def _append_scope_context(context, scope):
+    context.update({
+        'warehouses': scope['warehouses'],
+        'selected_warehouse': scope['selected_warehouse_value'],
+        'selected_warehouse_obj': scope['selected_warehouse'],
+        'warehouse_scope_label': scope['scope_label'],
+    })
+    return context
 
 @login_required
 @log_view_access('OTHER')
@@ -29,6 +53,8 @@ def sales_trend_report(request):
     """
     Sales trend report view.
     """
+    scope = _resolve_report_scope(request)
+    warehouse_ids = scope['warehouse_ids']
     if request.method == 'POST':
         form = DateRangeForm(request.POST)
         if form.is_valid():
@@ -47,16 +73,22 @@ def sales_trend_report(request):
                 start_date=start_date,
                 end_date=end_date,
                 period=period,
-                sale_type=sale_type_filter
+                sale_type=sale_type_filter,
+                warehouse_ids=warehouse_ids,
             )
             
-            return render(request, 'inventory/reports/sales_trend.html', {
+            context = {
                 'form': form,
                 'sales_data': sales_data,
                 'start_date': start_date,
                 'end_date': end_date,
                 'period': period
-            })
+            }
+            return render(
+                request,
+                'inventory/reports/sales_trend.html',
+                _append_scope_context(context, scope),
+            )
     else:
         form = DateRangeForm()
         
@@ -75,16 +107,22 @@ def sales_trend_report(request):
             start_date=start_date,
             end_date=end_date,
             period='day',
-            sale_type=sale_type_filter
+            sale_type=sale_type_filter,
+            warehouse_ids=warehouse_ids,
         )
         
-        return render(request, 'inventory/reports/sales_trend.html', {
+        context = {
             'form': form,
             'sales_data': sales_data,
             'start_date': start_date,
             'end_date': end_date,
             'period': 'day'
-        })
+        }
+        return render(
+            request,
+            'inventory/reports/sales_trend.html',
+            _append_scope_context(context, scope),
+        )
 
 def _map_top_products(raw_data):
     """将 ReportService 返回的键名映射为模板期望的格式"""
@@ -108,6 +146,8 @@ def top_products_report(request):
     """
     Top selling products report view.
     """
+    scope = _resolve_report_scope(request)
+    warehouse_ids = scope['warehouse_ids']
     if request.method == 'POST':
         form = TopProductsForm(request.POST)
         if form.is_valid():
@@ -122,16 +162,22 @@ def top_products_report(request):
                 start_date=start_date,
                 end_date=end_date,
                 limit=limit,
-                sale_type=sale_type_filter
+                sale_type=sale_type_filter,
+                warehouse_ids=warehouse_ids,
             )
             top_products = _map_top_products(raw_data)
 
-            return render(request, 'inventory/reports/top_products.html', {
+            context = {
                 'form': form,
                 'top_products': top_products,
                 'start_date': start_date,
                 'end_date': end_date
-            })
+            }
+            return render(
+                request,
+                'inventory/reports/top_products.html',
+                _append_scope_context(context, scope),
+            )
     else:
         form = TopProductsForm()
         start_date = timezone.now().date() - timedelta(days=30)
@@ -145,16 +191,22 @@ def top_products_report(request):
             start_date=start_date,
             end_date=end_date,
             limit=limit,
-            sale_type=sale_type_filter
+            sale_type=sale_type_filter,
+            warehouse_ids=warehouse_ids,
         )
         top_products = _map_top_products(raw_data)
 
-        return render(request, 'inventory/reports/top_products.html', {
+        context = {
             'form': form,
             'top_products': top_products,
             'start_date': start_date,
             'end_date': end_date
-        })
+        }
+        return render(
+            request,
+            'inventory/reports/top_products.html',
+            _append_scope_context(context, scope),
+        )
 
 @login_required
 @log_view_access('OTHER')
@@ -163,6 +215,8 @@ def inventory_turnover_report(request):
     """
     Inventory turnover report view.
     """
+    scope = _resolve_report_scope(request)
+    warehouse_ids = scope['warehouse_ids']
     if request.method == 'POST':
         form = InventoryTurnoverForm(request.POST)
         if form.is_valid():
@@ -174,15 +228,21 @@ def inventory_turnover_report(request):
             inventory_data = ReportService.get_inventory_turnover_rate(
                 start_date=start_date,
                 end_date=end_date,
-                category=category
+                category=category,
+                warehouse_ids=warehouse_ids,
             )
             
-            return render(request, 'inventory/reports/inventory_turnover.html', {
+            context = {
                 'form': form,
                 'inventory_data': inventory_data,
                 'start_date': start_date,
                 'end_date': end_date
-            })
+            }
+            return render(
+                request,
+                'inventory/reports/inventory_turnover.html',
+                _append_scope_context(context, scope),
+            )
     else:
         form = InventoryTurnoverForm()
         
@@ -193,15 +253,21 @@ def inventory_turnover_report(request):
         # Get inventory turnover data
         inventory_data = ReportService.get_inventory_turnover_rate(
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            warehouse_ids=warehouse_ids,
         )
         
-        return render(request, 'inventory/reports/inventory_turnover.html', {
+        context = {
             'form': form,
             'inventory_data': inventory_data,
             'start_date': start_date,
             'end_date': end_date
-        })
+        }
+        return render(
+            request,
+            'inventory/reports/inventory_turnover.html',
+            _append_scope_context(context, scope),
+        )
 
 @login_required
 @log_view_access('OTHER')
@@ -211,6 +277,8 @@ def profit_report(request):
     Profit report view.
     模板需要 summary（汇总卡片）和 profit_data（按时间分组的明细列表）。
     """
+    scope = _resolve_report_scope(request)
+    warehouse_ids = scope['warehouse_ids']
     if request.method == 'POST':
         form = DateRangeForm(request.POST)
         if form.is_valid():
@@ -225,7 +293,8 @@ def profit_report(request):
                 start_date=start_date,
                 end_date=end_date,
                 period=period,
-                sale_type=sale_type_filter
+                sale_type=sale_type_filter,
+                warehouse_ids=warehouse_ids,
             )
             profit_data = [
                 {
@@ -242,7 +311,8 @@ def profit_report(request):
             report = ReportService.get_profit_report(
                 start_date=start_date,
                 end_date=end_date,
-                sale_type=sale_type_filter
+                sale_type=sale_type_filter,
+                warehouse_ids=warehouse_ids,
             )
             summary = {
                 'total_sales': report['total_sales'],
@@ -251,14 +321,19 @@ def profit_report(request):
                 'avg_profit_margin': report['profit_margin'],
             }
 
-            return render(request, 'inventory/reports/profit.html', {
+            context = {
                 'form': form,
                 'summary': summary,
                 'profit_data': profit_data,
                 'start_date': start_date,
                 'end_date': end_date,
                 'period': period,
-            })
+            }
+            return render(
+                request,
+                'inventory/reports/profit.html',
+                _append_scope_context(context, scope),
+            )
     else:
         form = DateRangeForm()
         start_date = timezone.now().date() - timedelta(days=30)
@@ -272,7 +347,8 @@ def profit_report(request):
             start_date=start_date,
             end_date=end_date,
             period=period,
-            sale_type=sale_type_filter
+            sale_type=sale_type_filter,
+            warehouse_ids=warehouse_ids,
         )
         profit_data = [
             {
@@ -289,7 +365,8 @@ def profit_report(request):
         report = ReportService.get_profit_report(
             start_date=start_date,
             end_date=end_date,
-            sale_type=sale_type_filter
+            sale_type=sale_type_filter,
+            warehouse_ids=warehouse_ids,
         )
         summary = {
             'total_sales': report['total_sales'],
@@ -298,14 +375,19 @@ def profit_report(request):
             'avg_profit_margin': report['profit_margin'],
         }
 
-        return render(request, 'inventory/reports/profit.html', {
+        context = {
             'form': form,
             'summary': summary,
             'profit_data': profit_data,
             'start_date': start_date,
             'end_date': end_date,
             'period': period,
-        })
+        }
+        return render(
+            request,
+            'inventory/reports/profit.html',
+            _append_scope_context(context, scope),
+        )
 
 @login_required
 @log_view_access('OTHER')

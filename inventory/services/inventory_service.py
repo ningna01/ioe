@@ -12,8 +12,9 @@ from django.contrib.contenttypes.models import ContentType
 from inventory.models import (
     Product,
     Inventory,
-    InventoryTransaction,
-    Category
+    Category,
+    check_inventory,
+    update_inventory,
 )
 from inventory.exceptions import InsufficientStockError, InventoryValidationError
 from inventory.utils.logging import log_exception, log_action
@@ -34,11 +35,7 @@ class InventoryService:
         Returns:
             bool: True if there is sufficient stock, False otherwise
         """
-        try:
-            inventory = Inventory.objects.get(product=product)
-            return inventory.quantity >= quantity
-        except Inventory.DoesNotExist:
-            return False
+        return check_inventory(product, quantity)
     
     @staticmethod
     @log_exception
@@ -64,51 +61,57 @@ class InventoryService:
         if transaction_type not in ('IN', 'OUT', 'ADJUST'):
             raise InventoryValidationError("交易类型无效")
         
-        # Get or create inventory
-        inventory, created = Inventory.objects.get_or_create(
+        # Get or create inventory profile for compatibility and adjustment baseline.
+        inventory, _ = Inventory.objects.get_or_create(
             product=product,
             defaults={'quantity': 0, 'warning_level': 10}
         )
-        
-        # For outgoing transactions, check stock
+
+        # For outgoing transactions, keep compatibility exception type.
         if transaction_type == 'OUT' and inventory.quantity < quantity:
             raise InsufficientStockError(
                 f"库存不足。需要: {quantity}, 当前库存: {inventory.quantity}",
                 extra={'product': product.name, 'current_stock': inventory.quantity, 'needed': quantity}
             )
-        
-        # Create transaction record
-        transaction = InventoryTransaction.objects.create(
+
+        service_quantity = quantity
+        if transaction_type == 'ADJUST':
+            # InventoryService historical contract: ADJUST quantity means target stock.
+            service_quantity = quantity - inventory.quantity
+
+        success, inventory, result = update_inventory(
             product=product,
+            quantity=service_quantity,
             transaction_type=transaction_type,
-            quantity=quantity,
             operator=operator,
-            notes=notes
+            notes=notes,
         )
-        
-        # Update inventory
-        if transaction_type == 'IN':
-            inventory.quantity = F('quantity') + quantity
-        elif transaction_type == 'OUT':
-            inventory.quantity = F('quantity') - quantity
-        else:  # ADJUST
-            inventory.quantity = quantity
-        
-        inventory.save()
-        inventory.refresh_from_db()  # Refresh to get updated value
-        
+        if not success:
+            if transaction_type == 'OUT':
+                raise InsufficientStockError(
+                    str(result),
+                    extra={'product': product.name, 'current_stock': inventory.quantity if inventory else 0, 'needed': quantity}
+                )
+            raise InventoryValidationError(str(result))
+
+        transaction_record = result
+        if transaction_type == 'ADJUST' and transaction_record.quantity != quantity:
+            # Keep legacy audit semantics for callers that read ADJUST transaction quantity as target stock.
+            transaction_record.quantity = quantity
+            transaction_record.save(update_fields=['quantity'])
+
         # Log the action
         log_action(
             user=operator,
             operation_type='INVENTORY',
             details=f"{transaction_type} 交易: {product.name}, 数量: {quantity}, 备注: {notes}",
-            related_object=transaction
+            related_object=transaction_record
         )
         
         # Check if stock is low and send notification if needed
         InventoryService.check_stock_level(inventory)
         
-        return inventory, transaction
+        return inventory, transaction_record
     
     @staticmethod
     @log_exception

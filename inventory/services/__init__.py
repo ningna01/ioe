@@ -11,6 +11,9 @@ from . import report_service
 from . import inventory_check_service
 from . import backup_service
 from . import inventory_service
+from . import warehouse_scope_service
+from . import warehouse_inventory_service
+from . import stock_scope_service
 
 # 导出服务模块，方便直接访问
 __all__ = [
@@ -21,4 +24,7 @@ __all__ = [
     'inventory_check_service',
     'backup_service',
     'inventory_service',
-] 
+    'warehouse_scope_service',
+    'warehouse_inventory_service',
+    'stock_scope_service',
+]

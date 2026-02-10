@@ -10,7 +10,7 @@ from .inventory import (
 )
 
 # 仓库相关模型
-from .warehouse import Warehouse, WarehouseInventory
+from .warehouse import Warehouse, WarehouseInventory, UserWarehouseAccess
 
 # 库存盘点相关模型
 from .inventory_check import InventoryCheck, InventoryCheckItem
@@ -34,7 +34,7 @@ __all__ = [
     'update_inventory', 'StockAlert',
     
     # 仓库模型
-    'Warehouse', 'WarehouseInventory',
+    'Warehouse', 'WarehouseInventory', 'UserWarehouseAccess',
     
     # 库存盘点模型
     'InventoryCheck', 'InventoryCheckItem',

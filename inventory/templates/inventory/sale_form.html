@@ -1056,6 +1056,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     <input type="hidden" id="total-amount-input" name="total_amount" value="0.00">
                     <input type="hidden" id="discount-amount-input" name="discount_amount" value="0.00">
                     <input type="hidden" id="final-amount-input" name="final_amount" value="0.00">
+
+                    <div class="form-group mb-3">
+                        <label for="warehouse" class="text-muted small">销售仓库:</label>
+                        <select id="warehouse" name="warehouse" class="form-select form-select-sm" required>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.id }}" {% if selected_warehouse_id == warehouse.id|stringformat:"s" %}selected{% endif %}>
+                                {{ warehouse.name }}
+                            </option>
+                            {% empty %}
+                            <option value="" selected disabled>暂无可用仓库</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     
                     <!-- 添加备注字段 -->
                     <div class="form-group mb-3">

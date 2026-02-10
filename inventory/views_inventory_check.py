@@ -18,6 +18,7 @@ from inventory.models import (
 )
 from inventory.forms import InventoryCheckForm, InventoryCheckItemForm, InventoryCheckApproveForm
 from inventory.services.inventory_check_service import InventoryCheckService
+from inventory.services.warehouse_scope_service import WarehouseScopeService
 from inventory.utils.logging import log_view_access
 from inventory.permissions.decorators import permission_required
 
@@ -26,7 +27,11 @@ from inventory.permissions.decorators import permission_required
 @permission_required('perform_inventory_check')
 def inventory_check_list(request):
     """库存盘点列表视图"""
-    inventory_checks = InventoryCheck.objects.all().order_by('-created_at')
+    inventory_checks = InventoryCheck.objects.select_related('warehouse').all().order_by('-created_at')
+    inventory_checks = WarehouseScopeService.filter_inventory_checks_queryset(
+        request.user,
+        inventory_checks
+    )
     
     # Search and filter
     search_query = request.GET.get('q', '')
@@ -54,10 +59,27 @@ def inventory_check_list(request):
 def inventory_check_create(request):
     """View to create a new inventory check."""
     if request.method == 'POST':
-        form = InventoryCheckForm(request.POST)
+        form = InventoryCheckForm(request.POST, user=request.user)
         if form.is_valid():
             # Extract category if specified
             category = form.cleaned_data.get('category')
+            warehouse = form.cleaned_data.get('warehouse') or WarehouseScopeService.get_default_warehouse(request.user)
+
+            if warehouse is None:
+                messages.error(request, '当前用户未分配可用仓库，请先在用户仓库授权中配置')
+                return render(request, 'inventory/inventory_check_form.html', {
+                    'form': form,
+                    'form_title': '创建库存盘点',
+                    'submit_text': '创建',
+                })
+
+            if not WarehouseScopeService.can_access_warehouse(request.user, warehouse):
+                messages.error(request, '无权在该仓库创建盘点单')
+                return render(request, 'inventory/inventory_check_form.html', {
+                    'form': form,
+                    'form_title': '创建库存盘点',
+                    'submit_text': '创建',
+                })
             
             # Use the service to create the inventory check
             try:
@@ -65,7 +87,8 @@ def inventory_check_create(request):
                     name=form.cleaned_data['name'],
                     description=form.cleaned_data['description'],
                     user=request.user,
-                    category=category
+                    category=category,
+                    warehouse=warehouse
                 )
                 
                 messages.success(request, f'库存盘点 {inventory_check.name} 创建成功')
@@ -73,7 +96,7 @@ def inventory_check_create(request):
             except Exception as e:
                 messages.error(request, f'创建库存盘点时出错: {str(e)}')
     else:
-        form = InventoryCheckForm()
+        form = InventoryCheckForm(user=request.user)
     
     return render(request, 'inventory/inventory_check_form.html', {
         'form': form,
@@ -87,6 +110,7 @@ def inventory_check_create(request):
 def inventory_check_detail(request, check_id):
     """View to show inventory check details."""
     inventory_check = get_object_or_404(InventoryCheck, id=check_id)
+    WarehouseScopeService.ensure_inventory_check_access(request.user, inventory_check)
     
     # Get inventory check items with products
     check_items = inventory_check.items.all().select_related('product')
@@ -106,6 +130,7 @@ def inventory_check_detail(request, check_id):
 def inventory_check_item_update(request, check_id, item_id):
     """View to record actual quantity for an inventory check item."""
     inventory_check = get_object_or_404(InventoryCheck, id=check_id)
+    WarehouseScopeService.ensure_inventory_check_access(request.user, inventory_check)
     check_item = get_object_or_404(InventoryCheckItem, id=item_id, inventory_check=inventory_check)
     
     if request.method == 'POST':
@@ -141,6 +166,11 @@ def inventory_check_item_update(request, check_id, item_id):
 def inventory_check_start(request, check_id):
     """View to start an inventory check."""
     inventory_check = get_object_or_404(InventoryCheck, id=check_id)
+    WarehouseScopeService.ensure_inventory_check_access(request.user, inventory_check)
+
+    if request.method != 'POST':
+        messages.error(request, '无效请求方式，开始盘点必须使用 POST')
+        return redirect('inventory_check_detail', check_id=check_id)
     
     try:
         InventoryCheckService.start_inventory_check(
@@ -160,6 +190,11 @@ def inventory_check_start(request, check_id):
 def inventory_check_complete(request, check_id):
     """View to complete an inventory check."""
     inventory_check = get_object_or_404(InventoryCheck, id=check_id)
+    WarehouseScopeService.ensure_inventory_check_access(request.user, inventory_check)
+
+    if request.method != 'POST':
+        messages.error(request, '无效请求方式，完成盘点必须使用 POST')
+        return redirect('inventory_check_detail', check_id=check_id)
     
     try:
         InventoryCheckService.complete_inventory_check(
@@ -179,6 +214,7 @@ def inventory_check_complete(request, check_id):
 def inventory_check_approve(request, check_id):
     """View to approve an inventory check."""
     inventory_check = get_object_or_404(InventoryCheck, id=check_id)
+    WarehouseScopeService.ensure_inventory_check_access(request.user, inventory_check)
     
     if request.method == 'POST':
         form = InventoryCheckApproveForm(request.POST)
@@ -220,6 +256,11 @@ def inventory_check_approve(request, check_id):
 def inventory_check_cancel(request, check_id):
     """View to cancel an inventory check."""
     inventory_check = get_object_or_404(InventoryCheck, id=check_id)
+    WarehouseScopeService.ensure_inventory_check_access(request.user, inventory_check)
+
+    if request.method != 'POST':
+        messages.error(request, '无效请求方式，取消盘点必须使用 POST')
+        return redirect('inventory_check_detail', check_id=check_id)
     
     try:
         InventoryCheckService.cancel_inventory_check(

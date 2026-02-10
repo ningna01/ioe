@@ -2,25 +2,22 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import F, Sum
-from .models import Product, Category, Inventory, Sale, SaleItem, InventoryTransaction
+from .models import Product, Category, Inventory, Sale, SaleItem, check_inventory, update_inventory
 from django.http import JsonResponse
 from .models import OperationLog
 from django.db.models import Q
 from decimal import Decimal
 from django.utils import timezone
 import re
+from inventory.services.stock_scope_service import StockScopeService
 
 
 def product_by_barcode(request, barcode):
+    warehouse_ids = StockScopeService.resolve_request_warehouse_ids(request)
     try:
         # 先尝试精确匹配条码
         product = Product.objects.get(barcode=barcode)
-        # 获取库存信息
-        try:
-            inventory = Inventory.objects.get(product=product)
-            stock = inventory.quantity
-        except Inventory.DoesNotExist:
-            stock = 0
+        stock = StockScopeService.get_product_stock(product, warehouse_ids=warehouse_ids)
             
         return JsonResponse({
             'success': True,
@@ -39,11 +36,7 @@ def product_by_barcode(request, barcode):
             # 返回匹配的多个商品
             product_list = []
             for product in products:
-                try:
-                    inventory = Inventory.objects.get(product=product)
-                    stock = inventory.quantity
-                except Inventory.DoesNotExist:
-                    stock = 0
+                stock = StockScopeService.get_product_stock(product, warehouse_ids=warehouse_ids)
                     
                 product_list.append({
                     'product_id': product.id,
@@ -171,7 +164,7 @@ def product_create(request):
         form = ProductForm(request.POST, request.FILES)
         if form.is_valid():
             product = form.save()
-            Inventory.objects.create(product=product)
+            Inventory.objects.get_or_create(product=product)
             
             # 记录操作日志
             from django.contrib.contenttypes.models import ContentType
@@ -227,21 +220,23 @@ def product_edit(request, product_id):
 @login_required
 def inventory_transaction_create(request):
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST)
+        form = InventoryTransactionForm(request.POST, user=request.user)
         if form.is_valid():
-            transaction = form.save(commit=False)
-            transaction.transaction_type = 'IN'
-            transaction.operator = request.user
-            transaction.save()
-            
-            inventory = Inventory.objects.get(product=transaction.product)
-            inventory.quantity += transaction.quantity
-            inventory.save()
-            
-            messages.success(request, '入库操作成功')
-            return redirect('inventory_list')
+            success, _, result = update_inventory(
+                product=form.cleaned_data['product'],
+                warehouse=form.cleaned_data.get('warehouse'),
+                quantity=form.cleaned_data['quantity'],
+                transaction_type='IN',
+                operator=request.user,
+                notes=form.cleaned_data.get('notes') or ''
+            )
+
+            if success:
+                messages.success(request, '入库操作成功')
+                return redirect('inventory_list')
+            messages.error(request, f'入库失败: {result}')
     else:
-        form = InventoryTransactionForm()
+        form = InventoryTransactionForm(user=request.user)
     return render(request, 'inventory/inventory_form.html', {'form': form})
 
 @login_required
@@ -269,37 +264,35 @@ def sale_item_create(request, sale_id):
         if form.is_valid():
             sale_item = form.save(commit=False)
             sale_item.sale = sale
-            
-            inventory = Inventory.objects.get(product=sale_item.product)
-            if inventory.quantity >= sale_item.quantity:
-                inventory.quantity -= sale_item.quantity
-                inventory.save()
-                
-                sale_item.save()
-                sale.update_total_amount()
-                
-                transaction = InventoryTransaction.objects.create(
+
+            if not check_inventory(sale_item.product, sale_item.quantity, warehouse=sale.warehouse):
+                messages.error(request, '库存不足')
+            else:
+                success, _, result = update_inventory(
                     product=sale_item.product,
+                    warehouse=sale.warehouse,
+                    quantity=-sale_item.quantity,
                     transaction_type='OUT',
-                    quantity=sale_item.quantity,
                     operator=request.user,
                     notes=f'销售单号：{sale.id}'
                 )
-                
-                messages.success(request, '商品添加成功')
-                
-                # 记录操作日志
-                from django.contrib.contenttypes.models import ContentType
-                OperationLog.objects.create(
-                    operator=request.user,
-                    operation_type='SALE',
-                    details=f'销售商品 {sale_item.product.name} 数量 {sale_item.quantity}',
-                    related_object_id=sale.id,
-                    related_content_type=ContentType.objects.get_for_model(Sale)
-                )
-                return redirect('sale_item_create', sale_id=sale.id)
-            else:
-                messages.error(request, '库存不足')
+                if success:
+                    sale_item.save()
+                    sale.update_total_amount()
+
+                    messages.success(request, '商品添加成功')
+
+                    # 记录操作日志
+                    from django.contrib.contenttypes.models import ContentType
+                    OperationLog.objects.create(
+                        operator=request.user,
+                        operation_type='SALE',
+                        details=f'销售商品 {sale_item.product.name} 数量 {sale_item.quantity}',
+                        related_object_id=sale.id,
+                        related_content_type=ContentType.objects.get_for_model(Sale)
+                    )
+                    return redirect('sale_item_create', sale_id=sale.id)
+                messages.error(request, f'扣减库存失败: {result}')
     else:
         form = SaleItemForm()
     

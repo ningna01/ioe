@@ -4,14 +4,24 @@
 """
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum, Count, Avg
+from django.db.models import F, Min, Sum
 from django.utils import timezone
 from datetime import timedelta
 
 from inventory.models import (
-    Product, Inventory, Sale, SaleItem, 
-    InventoryTransaction, OperationLog
+    Product, Sale, SaleItem, WarehouseInventory, OperationLog
 )
+from inventory.permissions.decorators import permission_required
+from inventory.services.warehouse_scope_service import WarehouseScopeService
+
+
+def _build_dashboard_scope(user, request):
+    warehouse_param = request.GET.get('warehouse', 'all')
+    return WarehouseScopeService.resolve_warehouse_selection(
+        user=user,
+        warehouse_param=warehouse_param,
+        include_all_option=True,
+    )
 
 
 @login_required
@@ -23,21 +33,50 @@ def index(request):
     week_ago = today - timedelta(days=7)
     month_ago = today - timedelta(days=30)
     
-    # 商品统计
-    total_products = Product.objects.count()
-    active_products = total_products
-    low_stock_products = Inventory.objects.filter(quantity__lte=10).count()
-    out_of_stock_products = Inventory.objects.filter(quantity=0).count()
+    scope = _build_dashboard_scope(request.user, request)
+    warehouse_ids = scope['warehouse_ids']
+
+    inventory_scope_query = WarehouseInventory.objects.select_related('product', 'warehouse').filter(
+        warehouse__is_active=True
+    )
+    if warehouse_ids is not None:
+        if warehouse_ids:
+            inventory_scope_query = inventory_scope_query.filter(warehouse_id__in=warehouse_ids)
+        else:
+            inventory_scope_query = inventory_scope_query.none()
+
+    product_stock_summary = inventory_scope_query.values('product_id').annotate(
+        total_quantity=Sum('quantity'),
+        warning_level=Min('warning_level'),
+    )
+
+    # 商品统计（仓库口径）
+    total_products = product_stock_summary.count()
+    active_products = Product.objects.filter(
+        is_active=True,
+        warehouse_inventories__in=inventory_scope_query,
+    ).distinct().count()
+    low_stock_products = product_stock_summary.filter(
+        total_quantity__lte=F('warning_level')
+    ).count()
+    out_of_stock_products = product_stock_summary.filter(total_quantity=0).count()
     
     # 销售统计
-    total_sales = Sale.objects.count()
-    today_sales = Sale.objects.filter(created_at__date=today).count()
-    today_sales_amount = Sale.objects.filter(created_at__date=today).aggregate(
+    sales_scope = Sale.objects.all()
+    if warehouse_ids is not None:
+        if warehouse_ids:
+            sales_scope = sales_scope.filter(warehouse_id__in=warehouse_ids)
+        else:
+            sales_scope = sales_scope.none()
+
+    total_sales = sales_scope.count()
+    today_sales = sales_scope.filter(created_at__date=today).count()
+    today_sales_amount = sales_scope.filter(created_at__date=today).aggregate(
         total=Sum('total_amount')
     )['total'] or 0
     
-    yesterday_sales = Sale.objects.filter(created_at__date=yesterday).count()
-    yesterday_sales_amount = Sale.objects.filter(created_at__date=yesterday).aggregate(
+    yesterday_sales = sales_scope.filter(created_at__date=yesterday).count()
+    yesterday_sales_amount = sales_scope.filter(created_at__date=yesterday).aggregate(
         total=Sum('total_amount')
     )['total'] or 0
     
@@ -50,7 +89,7 @@ def index(request):
     sales_trend = []
     for i in range(7):
         date = today - timedelta(days=i)
-        daily_sales = Sale.objects.filter(created_at__date=date).aggregate(
+        daily_sales = sales_scope.filter(created_at__date=date).aggregate(
             total=Sum('total_amount')
         )['total'] or 0
         sales_trend.append({
@@ -60,9 +99,16 @@ def index(request):
     sales_trend.reverse()
     
     # 热销商品
-    top_products = SaleItem.objects.filter(
+    top_products_query = SaleItem.objects.filter(
         sale__created_at__gte=week_ago
-    ).values(
+    )
+    if warehouse_ids is not None:
+        if warehouse_ids:
+            top_products_query = top_products_query.filter(sale__warehouse_id__in=warehouse_ids)
+        else:
+            top_products_query = top_products_query.none()
+
+    top_products = top_products_query.values(
         'product__name'
     ).annotate(
         total_qty=Sum('quantity'),
@@ -97,6 +143,10 @@ def index(request):
         'sales_trend': sales_trend,
         'top_products': top_products,
         'recent_logs': recent_logs,
+        'warehouses': scope['warehouses'],
+        'selected_warehouse': scope['selected_warehouse_value'],
+        'warehouse_scope_label': scope['scope_label'],
+        'selected_warehouse_obj': scope['selected_warehouse'],
         # 'birthday_members': birthday_members,
         # 'current_month': current_month,
     }
@@ -105,6 +155,12 @@ def index(request):
 
 
 @login_required
+@permission_required('view_reports')
 def reports_index(request):
     """报表首页视图"""
-    return render(request, 'inventory/reports/index.html') 
+    scope = _build_dashboard_scope(request.user, request)
+    return render(request, 'inventory/reports/index.html', {
+        'warehouses': scope['warehouses'],
+        'selected_warehouse': scope['selected_warehouse_value'],
+        'warehouse_scope_label': scope['scope_label'],
+    })

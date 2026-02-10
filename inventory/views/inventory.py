@@ -3,19 +3,79 @@
 """
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse
 from django.contrib import messages
 from django.db.models import Q, Sum, F
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 
 from inventory.models import (
-    Product, Inventory, InventoryTransaction,
+    Product, InventoryTransaction,
     Warehouse, WarehouseInventory,
     OperationLog, StockAlert, check_inventory,
     update_inventory, Category
 )
 from inventory.forms import InventoryTransactionForm
+from inventory.services.warehouse_scope_service import WarehouseScopeService
+
+
+def _build_inventory_notes(source, intent, user_notes='', extra_context=None):
+    """统一库存交易备注格式，便于审计回溯。"""
+    note_parts = [
+        f"source={source}",
+        f"intent={intent}",
+    ]
+    cleaned_notes = (user_notes or '').strip()
+    if cleaned_notes:
+        note_parts.append(f"user_note={cleaned_notes}")
+    if extra_context:
+        for key, value in extra_context.items():
+            note_parts.append(f"{key}={value}")
+    return " | ".join(note_parts)
+
+
+def _build_inventory_success_message(action, product, warehouse, delta_quantity, current_quantity):
+    return (
+        f"{action}成功: {product.name} ({warehouse.name})，"
+        f"变更: {delta_quantity:+d}，当前库存: {current_quantity}"
+    )
+
+
+def _build_inventory_failure_message(action, product, warehouse, reason):
+    return f"{action}失败: {product.name} ({warehouse.name})，原因: {reason}"
+
+
+def _get_warehouse_stock(product, warehouse):
+    inventory = WarehouseInventory.objects.filter(product=product, warehouse=warehouse).first()
+    if inventory is None:
+        return 0
+    return inventory.quantity
+
+
+def _create_inventory_operation_log(
+    *,
+    operator,
+    action,
+    product,
+    warehouse,
+    requested_quantity,
+    delta_quantity,
+    current_quantity,
+    transaction,
+    source,
+):
+    """统一库存操作日志格式。"""
+    OperationLog.objects.create(
+        operator=operator,
+        operation_type='INVENTORY',
+        details=(
+            f"{action}: 商品={product.name}; 仓库={warehouse.name}; "
+            f"请求数量={requested_quantity}; 变更={delta_quantity:+d}; 当前库存={current_quantity}; "
+            f"交易ID={transaction.id}; 来源={source}"
+        ),
+        related_object_id=transaction.id,
+        related_content_type=ContentType.objects.get_for_model(InventoryTransaction),
+    )
 
 
 @login_required
@@ -27,22 +87,32 @@ def inventory_list(request):
     search_query = request.GET.get('search', '')
     warehouse_param = request.GET.get('warehouse', '')
 
-    # 仓库筛选：验证并解析
-    default_warehouse = Warehouse.objects.filter(is_default=True, is_active=True).first()
+    # 仓库筛选：按用户授权解析
+    available_warehouses = WarehouseScopeService.get_accessible_warehouses(request.user)
+    default_warehouse = WarehouseScopeService.get_default_warehouse(request.user)
     show_all_warehouses = warehouse_param == 'all'
     selected_warehouse = None
+    selected_warehouse_value = warehouse_param
 
     if warehouse_param and not show_all_warehouses:
         try:
-            wh_id = int(warehouse_param)
-            if Warehouse.objects.filter(id=wh_id, is_active=True).exists():
-                selected_warehouse = Warehouse.objects.get(id=wh_id)
-            else:
-                selected_warehouse = default_warehouse
+            selected_warehouse = available_warehouses.get(id=int(warehouse_param))
         except (ValueError, TypeError):
             selected_warehouse = default_warehouse
+            selected_warehouse_value = str(default_warehouse.id) if default_warehouse else ''
+        except Warehouse.DoesNotExist:
+            selected_warehouse = default_warehouse
+            selected_warehouse_value = str(default_warehouse.id) if default_warehouse else ''
+    elif show_all_warehouses and not WarehouseScopeService.is_admin_user(request.user):
+        # 普通用户仅可查看其授权仓集合
+        if not available_warehouses.exists():
+            show_all_warehouses = False
+            selected_warehouse = None
+            selected_warehouse_value = ''
     else:
         selected_warehouse = default_warehouse
+        if selected_warehouse is not None:
+            selected_warehouse_value = str(selected_warehouse.id)
 
     # 基础查询：使用 WarehouseInventory（与原 Inventory 行为一致，含 0 库存）
     base_qs = WarehouseInventory.objects.select_related(
@@ -50,9 +120,12 @@ def inventory_list(request):
     ).all()
 
     if show_all_warehouses:
-        inventory_items = base_qs
+        inventory_items = WarehouseScopeService.filter_warehouse_inventory_queryset(request.user, base_qs)
     elif selected_warehouse:
-        inventory_items = base_qs.filter(warehouse=selected_warehouse)
+        if WarehouseScopeService.can_access_warehouse(request.user, selected_warehouse):
+            inventory_items = base_qs.filter(warehouse=selected_warehouse)
+        else:
+            inventory_items = base_qs.none()
     else:
         inventory_items = base_qs.none()
 
@@ -71,7 +144,7 @@ def inventory_list(request):
     categories = Category.objects.all()
     colors = Product.COLOR_CHOICES
     sizes = Product.SIZE_CHOICES
-    warehouses = Warehouse.objects.filter(is_active=True).order_by('name')
+    warehouses = available_warehouses
 
     context = {
         'inventory_items': inventory_items,
@@ -82,7 +155,7 @@ def inventory_list(request):
         'selected_category': category_id,
         'selected_color': color,
         'selected_size': size,
-        'selected_warehouse': warehouse_param,
+        'selected_warehouse': selected_warehouse_value,
         'show_all_warehouses': show_all_warehouses,
         'search_query': search_query,
     }
@@ -100,7 +173,8 @@ def inventory_transaction_list(request):
     date_to = request.GET.get('date_to', '')
     
     # 基础查询
-    transactions = InventoryTransaction.objects.select_related('product', 'operator').all()
+    transactions = InventoryTransaction.objects.select_related('product', 'operator', 'warehouse').all()
+    transactions = WarehouseScopeService.filter_inventory_transactions_queryset(request.user, transactions)
     
     # 应用筛选条件
     if transaction_type:
@@ -155,12 +229,16 @@ def inventory_transaction_list(request):
 def inventory_in(request):
     """入库视图（支持多仓库）"""
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST)
+        form = InventoryTransactionForm(request.POST, user=request.user)
         if form.is_valid():
             product = form.cleaned_data['product']
             warehouse = form.cleaned_data['warehouse']
             quantity = form.cleaned_data['quantity']
-            notes = form.cleaned_data['notes']
+            notes = _build_inventory_notes(
+                source='inventory_in',
+                intent='manual_in',
+                user_notes=form.cleaned_data['notes'],
+            )
             success, inventory, result = update_inventory(
                 product=product,
                 warehouse=warehouse,
@@ -170,19 +248,40 @@ def inventory_in(request):
                 notes=notes
             )
             if success:
-                OperationLog.objects.create(
+                transaction = result
+                _create_inventory_operation_log(
                     operator=request.user,
-                    operation_type='INVENTORY',
-                    details=f'入库: {product.name} x {quantity} -> {warehouse.name}',
-                    related_object_id=inventory.id,
-                    related_content_type=ContentType.objects.get_for_model(inventory)
+                    action='入库',
+                    product=product,
+                    warehouse=warehouse,
+                    requested_quantity=quantity,
+                    delta_quantity=quantity,
+                    current_quantity=inventory.quantity,
+                    transaction=transaction,
+                    source='inventory_in',
                 )
-                messages.success(request, f'{product.name} 入库成功，当前库存: {inventory.quantity} ({warehouse.name})')
+                messages.success(
+                    request,
+                    _build_inventory_success_message(
+                        action='入库',
+                        product=product,
+                        warehouse=warehouse,
+                        delta_quantity=quantity,
+                        current_quantity=inventory.quantity,
+                    ),
+                )
                 return redirect('inventory_list')
-            else:
-                messages.error(request, f'入库失败: {result}')
+            messages.error(
+                request,
+                _build_inventory_failure_message(
+                    action='入库',
+                    product=product,
+                    warehouse=warehouse,
+                    reason=result,
+                ),
+            )
     else:
-        form = InventoryTransactionForm()
+        form = InventoryTransactionForm(user=request.user)
     return render(request, 'inventory/inventory_transaction_form.html', {
         'form': form,
         'form_title': '商品入库',
@@ -195,22 +294,37 @@ def inventory_in(request):
 def inventory_out(request):
     """出库视图（支持多仓库）"""
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST)
+        form = InventoryTransactionForm(request.POST, user=request.user)
         if form.is_valid():
             product = form.cleaned_data['product']
             warehouse = form.cleaned_data['warehouse']
             quantity = form.cleaned_data['quantity']
-            notes = form.cleaned_data['notes']
+            user_notes = form.cleaned_data['notes']
             
             # 先检查库存是否足够（支持多仓库）
             if not check_inventory(product, quantity, warehouse):
-                messages.error(request, f'出库失败: {product.name} ({warehouse.name}) 当前库存不足')
+                current_quantity = _get_warehouse_stock(product, warehouse)
+                messages.error(
+                    request,
+                    _build_inventory_failure_message(
+                        action='出库',
+                        product=product,
+                        warehouse=warehouse,
+                        reason=f'库存不足，当前库存: {current_quantity}，请求出库: {quantity}',
+                    ),
+                )
                 return render(request, 'inventory/inventory_transaction_form.html', {
                     'form': form,
                     'form_title': '商品出库',
                     'submit_text': '确认出库',
                     'transaction_type': 'OUT'
                 })
+
+            notes = _build_inventory_notes(
+                source='inventory_out',
+                intent='manual_out',
+                user_notes=user_notes,
+            )
             
             # 使用工具函数更新库存
             success, inventory, result = update_inventory(
@@ -223,21 +337,40 @@ def inventory_out(request):
             )
             
             if success:
-                # 记录操作日志
-                OperationLog.objects.create(
+                transaction = result
+                _create_inventory_operation_log(
                     operator=request.user,
-                    operation_type='INVENTORY',
-                    details=f'出库: {product.name} x {quantity} <- {warehouse.name}',
-                    related_object_id=inventory.id,
-                    related_content_type=ContentType.objects.get_for_model(inventory)
+                    action='出库',
+                    product=product,
+                    warehouse=warehouse,
+                    requested_quantity=quantity,
+                    delta_quantity=-quantity,
+                    current_quantity=inventory.quantity,
+                    transaction=transaction,
+                    source='inventory_out',
                 )
-                
-                messages.success(request, f'{product.name} 出库成功，当前库存: {inventory.quantity} ({warehouse.name})')
+                messages.success(
+                    request,
+                    _build_inventory_success_message(
+                        action='出库',
+                        product=product,
+                        warehouse=warehouse,
+                        delta_quantity=-quantity,
+                        current_quantity=inventory.quantity,
+                    ),
+                )
                 return redirect('inventory_list')
-            else:
-                messages.error(request, f'出库失败: {result}')
+            messages.error(
+                request,
+                _build_inventory_failure_message(
+                    action='出库',
+                    product=product,
+                    warehouse=warehouse,
+                    reason=result,
+                ),
+            )
     else:
-        form = InventoryTransactionForm()
+        form = InventoryTransactionForm(user=request.user)
     
     return render(request, 'inventory/inventory_transaction_form.html', {
         'form': form,
@@ -251,17 +384,18 @@ def inventory_out(request):
 def inventory_adjust(request):
     """库存调整视图"""
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST)
+        form = InventoryTransactionForm(request.POST, user=request.user)
         if form.is_valid():
             product = form.cleaned_data['product']
+            warehouse = form.cleaned_data['warehouse']
             quantity = form.cleaned_data['quantity']
             notes = form.cleaned_data['notes']
             
             # 获取当前库存
             try:
-                inventory = Inventory.objects.get(product=product)
+                inventory = WarehouseInventory.objects.get(product=product, warehouse=warehouse)
                 current_quantity = inventory.quantity
-            except Inventory.DoesNotExist:
+            except WarehouseInventory.DoesNotExist:
                 current_quantity = 0
             
             # 计算调整值
@@ -297,30 +431,59 @@ def inventory_adjust(request):
                 })
             
             # 使用工具函数更新库存
+            notes = _build_inventory_notes(
+                source='inventory_adjust',
+                intent=f'manual_adjust_{adjustment_action}',
+                user_notes=notes,
+                extra_context={
+                    'before': current_quantity,
+                    'delta': f'{adjustment_value:+d}',
+                },
+            )
             success, inventory, result = update_inventory(
                 product=product,
+                warehouse=warehouse,
                 quantity=adjustment_value,
                 transaction_type='ADJUST',
                 operator=request.user,
-                notes=f"{notes} (调整前: {current_quantity})"
+                notes=notes,
             )
             
             if success:
-                # 记录操作日志
-                OperationLog.objects.create(
+                transaction = result
+                _create_inventory_operation_log(
                     operator=request.user,
-                    operation_type='INVENTORY',
-                    details=f'库存调整: {product.name} 从 {current_quantity} 到 {inventory.quantity}',
-                    related_object_id=inventory.id,
-                    related_content_type=ContentType.objects.get_for_model(inventory)
+                    action='调整',
+                    product=product,
+                    warehouse=warehouse,
+                    requested_quantity=quantity,
+                    delta_quantity=adjustment_value,
+                    current_quantity=inventory.quantity,
+                    transaction=transaction,
+                    source='inventory_adjust',
                 )
-                
-                messages.success(request, f'{product.name} 库存调整成功，当前库存: {inventory.quantity}')
+                messages.success(
+                    request,
+                    _build_inventory_success_message(
+                        action='调整',
+                        product=product,
+                        warehouse=warehouse,
+                        delta_quantity=adjustment_value,
+                        current_quantity=inventory.quantity,
+                    ),
+                )
                 return redirect('inventory_list')
-            else:
-                messages.error(request, f'库存调整失败: {result}')
+            messages.error(
+                request,
+                _build_inventory_failure_message(
+                    action='调整',
+                    product=product,
+                    warehouse=warehouse,
+                    reason=result,
+                ),
+            )
     else:
-        form = InventoryTransactionForm()
+        form = InventoryTransactionForm(user=request.user)
         product_id = request.GET.get('product_id')
         if product_id:
             try:
@@ -331,11 +494,15 @@ def inventory_adjust(request):
     
     # 获取当前库存（如果已选择商品）
     current_quantity = 0
-    if form.initial.get('product'):
+    selected_product = form.initial.get('product')
+    selected_warehouse = form.initial.get('warehouse')
+    if selected_product and selected_warehouse:
+        if not isinstance(selected_warehouse, Warehouse):
+            selected_warehouse = Warehouse.objects.filter(id=selected_warehouse).first()
         try:
-            inventory = Inventory.objects.get(product=form.initial['product'])
+            inventory = WarehouseInventory.objects.get(product=selected_product, warehouse=selected_warehouse)
             current_quantity = inventory.quantity
-        except Inventory.DoesNotExist:
+        except WarehouseInventory.DoesNotExist:
             pass
     
     return render(request, 'inventory/inventory_adjust_form.html', {
@@ -348,29 +515,61 @@ def inventory_adjust(request):
 def inventory_transaction_create(request):
     """创建入库交易视图"""
     if request.method == 'POST':
-        form = InventoryTransactionForm(request.POST)
+        form = InventoryTransactionForm(request.POST, user=request.user)
         if form.is_valid():
-            transaction = form.save(commit=False)
-            transaction.transaction_type = 'IN'
-            transaction.operator = request.user
-            transaction.save()
-            
-            inventory = Inventory.objects.get(product=transaction.product)
-            inventory.quantity += transaction.quantity
-            inventory.save()
-            
-            # 记录操作日志
-            OperationLog.objects.create(
-                operator=request.user,
-                operation_type='INVENTORY',
-                details=f'入库操作: {transaction.product.name}, 数量: {transaction.quantity}',
-                related_object_id=transaction.id,
-                related_content_type=ContentType.objects.get_for_model(InventoryTransaction)
+            product = form.cleaned_data['product']
+            warehouse = form.cleaned_data['warehouse']
+            quantity = form.cleaned_data['quantity']
+            notes = _build_inventory_notes(
+                source='inventory_transaction_create',
+                intent='manual_in_legacy_entry',
+                user_notes=form.cleaned_data['notes'],
             )
-            
-            messages.success(request, '入库操作成功')
-            return redirect('inventory_list')
+
+            success, inventory, result = update_inventory(
+                product=product,
+                warehouse=warehouse,
+                quantity=quantity,
+                transaction_type='IN',
+                operator=request.user,
+                notes=notes
+            )
+
+            if success:
+                transaction = result
+                _create_inventory_operation_log(
+                    operator=request.user,
+                    action='入库',
+                    product=product,
+                    warehouse=warehouse,
+                    requested_quantity=quantity,
+                    delta_quantity=quantity,
+                    current_quantity=inventory.quantity,
+                    transaction=transaction,
+                    source='inventory_transaction_create',
+                )
+                messages.success(
+                    request,
+                    _build_inventory_success_message(
+                        action='入库',
+                        product=product,
+                        warehouse=warehouse,
+                        delta_quantity=quantity,
+                        current_quantity=inventory.quantity,
+                    ),
+                )
+                return redirect('inventory_list')
+
+            messages.error(
+                request,
+                _build_inventory_failure_message(
+                    action='入库',
+                    product=product,
+                    warehouse=warehouse,
+                    reason=result,
+                ),
+            )
     else:
-        form = InventoryTransactionForm()
+        form = InventoryTransactionForm(user=request.user)
     
     return render(request, 'inventory/inventory_form.html', {'form': form}) 

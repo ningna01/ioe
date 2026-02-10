@@ -85,3 +85,8 @@ node_modules/
 npm-debug.log
 yarn-debug.log
 yarn-error.log
+
+# 本地文件
+docs/
+scripts/
+inventory/tests/

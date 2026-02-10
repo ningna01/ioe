@@ -4,6 +4,8 @@
 """
 
 from django.db import models
+from django.db.models import Q
+from django.contrib.auth.models import User
 from django.core.validators import MinLengthValidator, RegexValidator
 from django.utils.text import capfirst
 
@@ -110,6 +112,105 @@ class Warehouse(models.Model):
     def total_quantity(self):
         """获取仓库中的商品总数量"""
         return self.inventories.aggregate(total=models.Sum('quantity'))['total'] or 0
+
+
+class UserWarehouseAccess(models.Model):
+    """
+    用户仓库授权关系模型
+    用于记录用户可访问仓库、默认仓库与权限位
+    """
+    # 权限位定义
+    PERMISSION_VIEW = 1
+    PERMISSION_SALE = 2
+    PERMISSION_STOCK_IN = 4
+    PERMISSION_STOCK_OUT = 8
+    PERMISSION_INVENTORY_CHECK = 16
+    DEFAULT_PERMISSION_BITS = (
+        PERMISSION_VIEW
+        | PERMISSION_SALE
+        | PERMISSION_STOCK_IN
+        | PERMISSION_STOCK_OUT
+        | PERMISSION_INVENTORY_CHECK
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='warehouse_accesses',
+        verbose_name=capfirst('用户')
+    )
+
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.CASCADE,
+        related_name='user_accesses',
+        verbose_name=capfirst('仓库')
+    )
+
+    is_default = models.BooleanField(
+        default=False,
+        verbose_name=capfirst('默认仓库'),
+        help_text='标识该用户的默认仓库'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=capfirst('是否启用'),
+        help_text='禁用后该授权关系不参与权限判断'
+    )
+
+    permission_bits = models.PositiveIntegerField(
+        default=DEFAULT_PERMISSION_BITS,
+        verbose_name=capfirst('权限位'),
+        help_text='按位存储仓库权限，例如查看、销售、入库、出库、盘点'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name=capfirst('创建时间')
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name=capfirst('更新时间')
+    )
+
+    class Meta:
+        verbose_name = capfirst('用户仓库授权')
+        verbose_name_plural = capfirst('用户仓库授权')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'warehouse'],
+                name='uniq_user_warehouse_access'
+            ),
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=Q(is_default=True, is_active=True),
+                name='uniq_active_default_warehouse_per_user'
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['warehouse', 'is_active']),
+        ]
+
+    def __str__(self):
+        default_label = ' (默认)' if self.is_default else ''
+        return f'{self.user.username} -> {self.warehouse.name}{default_label}'
+
+    def save(self, *args, **kwargs):
+        # 保证同一用户只存在一个激活的默认仓
+        if self.is_default and self.is_active:
+            UserWarehouseAccess.objects.filter(
+                user=self.user,
+                is_default=True,
+                is_active=True
+            ).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
+
+    def has_permission(self, permission_bit):
+        """判断是否拥有指定权限位"""
+        return bool(self.permission_bits & permission_bit)
 
 
 class WarehouseInventory(models.Model):

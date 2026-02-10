@@ -5,9 +5,24 @@
 {% block content %}
 <div class="container">
     <div class="row mb-4">
-        <div class="col-12">
+        <div class="col-lg-8">
             <h1 class="h2">报表中心</h1>
-            <p class="text-muted">查看各种统计报表和数据分析</p>
+            <p class="text-muted mb-0">查看各种统计报表和数据分析</p>
+            <p class="text-muted mb-0">当前仓库范围：{{ warehouse_scope_label }}</p>
+        </div>
+        <div class="col-lg-4">
+            <form method="get" class="text-lg-end">
+                <label class="form-label small text-muted mb-1">仓库范围</label>
+                <div class="input-group">
+                    <select name="warehouse" class="form-select">
+                        <option value="all" {% if selected_warehouse == 'all' %}selected{% endif %}>全部可见仓库</option>
+                        {% for warehouse in warehouses %}
+                        <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id|stringformat:'s' %}selected{% endif %}>{{ warehouse.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-outline-primary">应用</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -19,7 +34,7 @@
                     <p class="card-text">分析销售额、订单量随时间的变化趋势</p>
                 </div>
                 <div class="card-footer text-center">
-                    <a href="{% url 'sales_trend_report' %}" class="btn btn-primary">查看报表</a>
+                    <a href="{% url 'sales_trend_report' %}?warehouse={{ selected_warehouse }}" class="btn btn-primary">查看报表</a>
                 </div>
             </div>
         </div>
@@ -31,7 +46,7 @@
                     <p class="card-text">查看销量最高的商品及其销售数据</p>
                 </div>
                 <div class="card-footer text-center">
-                    <a href="{% url 'top_products_report' %}" class="btn btn-primary">查看报表</a>
+                    <a href="{% url 'top_products_report' %}?warehouse={{ selected_warehouse }}" class="btn btn-primary">查看报表</a>
                 </div>
             </div>
         </div>
@@ -43,7 +58,7 @@
                     <p class="card-text">分析商品的库存周转率与滞销风险</p>
                 </div>
                 <div class="card-footer text-center">
-                    <a href="{% url 'inventory_turnover_report' %}" class="btn btn-primary">查看报表</a>
+                    <a href="{% url 'inventory_turnover_report' %}?warehouse={{ selected_warehouse }}" class="btn btn-primary">查看报表</a>
                 </div>
             </div>
         </div>
@@ -55,7 +70,7 @@
                     <p class="card-text">查看销售利润与毛利率分析</p>
                 </div>
                 <div class="card-footer text-center">
-                    <a href="{% url 'profit_report' %}" class="btn btn-primary">查看报表</a>
+                    <a href="{% url 'profit_report' %}?warehouse={{ selected_warehouse }}" class="btn btn-primary">查看报表</a>
                 </div>
             </div>
         </div>

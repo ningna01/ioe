@@ -1,5 +1,6 @@
 from django import forms
 from django.core.exceptions import ValidationError
+from decimal import Decimal
 
 from inventory.models import Sale, SaleItem, Product
 from inventory.models.inventory import check_inventory
@@ -95,6 +96,7 @@ class SaleItemForm(forms.ModelForm):
         }
     
     def __init__(self, *args, **kwargs):
+        self.warehouse = kwargs.pop('warehouse', None)
         super().__init__(*args, **kwargs)
         # 使用select_related优化查询
         self.fields['product'].queryset = Product.objects.all().select_related('category')
@@ -130,7 +132,7 @@ class SaleItemForm(forms.ModelForm):
         if product and quantity:
             # 检查库存
             if not self.instance.pk:  # 只有新添加的销售项才检查库存
-                if not check_inventory(product, quantity):
+                if not check_inventory(product, quantity, warehouse=self.warehouse):
                     self._warnings['inventory'] = f'警告：商品 "{product.name}" 库存不足，当前销售数量可能导致库存不足。'
                 
             # 如果未设置实际价格，使用标准价格
@@ -138,11 +140,11 @@ class SaleItemForm(forms.ModelForm):
                 cleaned_data['actual_price'] = product.price
                 
             # 如果实际价格小于标准价格的一半，标记警告
-            if cleaned_data.get('actual_price') < product.price * 0.5:
+            if cleaned_data.get('actual_price') < product.price * Decimal('0.5'):
                 self._warnings['low_price'] = f'警告：商品 "{product.name}" 的实际售价低于标准价格的50%，请确认是否正确。'
                 
             # 如果实际价格大于标准价格的两倍，标记警告
-            if cleaned_data.get('actual_price') > product.price * 2:
+            if cleaned_data.get('actual_price') > product.price * Decimal('2'):
                 self._warnings['high_price'] = f'警告：商品 "{product.name}" 的实际售价高于标准价格的200%，请确认是否正确。'
             
         return cleaned_data

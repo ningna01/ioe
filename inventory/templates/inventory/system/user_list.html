@@ -66,6 +66,7 @@
                             <th>姓名</th>
                             <th>邮箱</th>
                             <th>用户组</th>
+                            <th>仓库授权</th>
                             <th>最后登录</th>
                             <th>状态</th>
                             <th>操作</th>
@@ -83,6 +84,22 @@
                                 {% empty %}
                                 <span class="text-muted">-</span>
                                 {% endfor %}
+                            </td>
+                            <td>
+                                {% if user.is_superuser %}
+                                <span class="badge bg-warning text-dark">全仓访问</span>
+                                {% elif user.active_warehouse_accesses %}
+                                    {% for access in user.active_warehouse_accesses|slice:":2" %}
+                                    <span class="badge {% if access.is_default %}bg-primary{% else %}bg-info text-dark{% endif %}">
+                                        {{ access.warehouse.name }}{% if access.is_default %}(默认){% endif %}
+                                    </span>
+                                    {% endfor %}
+                                    {% if user.active_warehouse_accesses|length > 2 %}
+                                    <span class="text-muted small">+{{ user.active_warehouse_accesses|length|add:"-2" }}</span>
+                                    {% endif %}
+                                {% else %}
+                                <span class="text-muted">未授权</span>
+                                {% endif %}
                             </td>
                             <td>{{ user.last_login|date:"Y-m-d H:i"|default:"-" }}</td>
                             <td>

@@ -7,7 +7,10 @@ from django.db.models import Sum, Count, F, Case, When, Value
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 from django.utils import timezone
 
-from inventory.models import Product, Inventory, Sale, SaleItem, InventoryTransaction, OperationLog
+from inventory.models import (
+    Product, Inventory, WarehouseInventory,
+    Sale, SaleItem, InventoryTransaction, OperationLog
+)
 from inventory.utils.date_utils import get_period_boundaries
 
 
@@ -28,7 +31,7 @@ class ReportService:
     """Service for generating reports and analyzing data."""
     
     @staticmethod
-    def get_sales_by_period(start_date=None, end_date=None, period='day', sale_type=None):
+    def get_sales_by_period(start_date=None, end_date=None, period='day', sale_type=None, warehouse_ids=None):
         """
         Get sales data grouped by the specified period.
         
@@ -37,6 +40,7 @@ class ReportService:
             end_date: Optional end date for filtering
             period: Grouping period - 'day', 'week', or 'month'
             sale_type: Optional sale type filter - 'retail', 'wholesale', or None for all
+            warehouse_ids: Optional list of warehouse ids for scope filtering
             
         Returns:
             QuerySet: Sales data grouped by period
@@ -66,6 +70,12 @@ class ReportService:
         sales_query = Sale.objects.filter(
             created_at__range=(start_date, end_date_upper)
         )
+
+        if warehouse_ids is not None:
+            if warehouse_ids:
+                sales_query = sales_query.filter(warehouse_id__in=warehouse_ids)
+            else:
+                sales_query = sales_query.none()
         
         # Apply sale type filter if specified
         if sale_type and sale_type in ['retail', 'wholesale']:
@@ -94,7 +104,7 @@ class ReportService:
         return sales_data
     
     @staticmethod
-    def get_top_selling_products(start_date=None, end_date=None, limit=10, sale_type=None):
+    def get_top_selling_products(start_date=None, end_date=None, limit=10, sale_type=None, warehouse_ids=None):
         """
         Get top selling products for the given period.
         
@@ -103,6 +113,7 @@ class ReportService:
             end_date: Optional end date for filtering
             limit: Number of products to return
             sale_type: Optional sale type filter - 'retail', 'wholesale', or None for all
+            warehouse_ids: Optional list of warehouse ids for scope filtering
             
         Returns:
             QuerySet: Top selling products
@@ -117,6 +128,12 @@ class ReportService:
         items_query = SaleItem.objects.filter(
             sale__created_at__range=(start_date, end_date_upper)
         )
+
+        if warehouse_ids is not None:
+            if warehouse_ids:
+                items_query = items_query.filter(sale__warehouse_id__in=warehouse_ids)
+            else:
+                items_query = items_query.none()
 
         # Apply sale type filter if specified
         if sale_type and sale_type in ['retail', 'wholesale']:
@@ -144,7 +161,7 @@ class ReportService:
         return raw_data
     
     @staticmethod
-    def get_inventory_turnover_rate(start_date=None, end_date=None, category=None):
+    def get_inventory_turnover_rate(start_date=None, end_date=None, category=None, warehouse_ids=None):
         """
         Calculate inventory turnover rate for products.
         
@@ -152,6 +169,7 @@ class ReportService:
             start_date: Optional start date for filtering
             end_date: Optional end date for filtering
             category: Optional category for filtering products
+            warehouse_ids: Optional list of warehouse ids for scope filtering
             
         Returns:
             list: Inventory turnover rates for products
@@ -168,96 +186,164 @@ class ReportService:
 
         start_date, end_date_upper = _normalize_date_range(start_date, end_date)
 
-        # Get current inventory levels
-        inventory_query = Inventory.objects.select_related('product').all()
+        # 保持历史无作用域模式逻辑不变，避免影响既有报表口径
+        if warehouse_ids is None:
+            inventory_query = Inventory.objects.select_related('product').all()
+            if category:
+                inventory_query = inventory_query.filter(product__category=category)
 
-        # Filter by category if specified
+            sales_query = SaleItem.objects.filter(
+                sale__created_at__range=(start_date, end_date_upper)
+            )
+            if category:
+                sales_query = sales_query.filter(product__category=category)
+            sales_data = sales_query.values('product').annotate(
+                total_quantity=Sum('quantity')
+            )
+            sales_map = {item['product']: item['total_quantity'] for item in sales_data}
+
+            txn_base_query = InventoryTransaction.objects.filter(
+                created_at__range=(start_date, end_date_upper),
+                warehouse__isnull=True
+            )
+            if category:
+                txn_base_query = txn_base_query.filter(product__category=category)
+
+            txn_sums = txn_base_query.exclude(
+                transaction_type='ADJUST'
+            ).values('product').annotate(
+                total_in=Sum(Case(When(transaction_type='IN', then=F('quantity')), default=Value(0))),
+                total_out=Sum(Case(When(transaction_type='OUT', then=F('quantity')), default=Value(0)))
+            )
+            txn_map = {item['product']: item for item in txn_sums}
+
+            products_with_adjust = set(
+                txn_base_query.filter(
+                    transaction_type='ADJUST'
+                ).values_list('product_id', flat=True).distinct()
+            )
+
+            product_turnover = []
+            for inv in inventory_query:
+                sold_quantity = sales_map.get(inv.product.id, 0)
+                current_quantity = inv.quantity
+                txn = txn_map.get(inv.product.id, {'total_in': 0, 'total_out': 0})
+
+                if inv.product.id in products_with_adjust:
+                    average_inventory = (current_quantity + sold_quantity) / 2
+                else:
+                    beginning = current_quantity - (txn.get('total_in') or 0) + (txn.get('total_out') or 0)
+                    if beginning < 0:
+                        average_inventory = (0 + current_quantity) / 2
+                    else:
+                        average_inventory = (beginning + current_quantity) / 2
+
+                if average_inventory > 0:
+                    turnover_rate = (sold_quantity / average_inventory) * (365 / days)
+                    turnover_days = 365 / turnover_rate if turnover_rate > 0 else 9999
+                else:
+                    turnover_rate = 0
+                    turnover_days = 9999
+
+                product_turnover.append({
+                    'product_id': inv.product.id,
+                    'product_name': inv.product.name,
+                    'product_code': inv.product.barcode,
+                    'category': inv.product.category.name if inv.product.category else '',
+                    'current_stock': current_quantity,
+                    'sold_quantity': sold_quantity,
+                    'avg_stock': average_inventory,
+                    'turnover_rate': turnover_rate,
+                    'turnover_days': turnover_days,
+                })
+
+            product_turnover.sort(key=lambda x: x['turnover_rate'], reverse=True)
+            return product_turnover
+
+        if not warehouse_ids:
+            return []
+
+        inventory_query = WarehouseInventory.objects.select_related('product').filter(
+            warehouse_id__in=warehouse_ids
+        )
+        sales_query = SaleItem.objects.filter(
+            sale__created_at__range=(start_date, end_date_upper),
+            sale__warehouse_id__in=warehouse_ids
+        )
+        txn_base_query = InventoryTransaction.objects.filter(
+            created_at__range=(start_date, end_date_upper),
+            warehouse_id__in=warehouse_ids
+        )
+
         if category:
             inventory_query = inventory_query.filter(product__category=category)
-
-        inventory_data = inventory_query
-
-        # Get sales within period
-        sales_query = SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date_upper)
-        )
-        
-        # Apply category filter if needed
-        if category:
             sales_query = sales_query.filter(product__category=category)
-            
-        sales_data = sales_query.values('product').annotate(
-            total_quantity=Sum('quantity')
+            txn_base_query = txn_base_query.filter(product__category=category)
+
+        inventory_data = list(
+            inventory_query.values(
+                'product_id',
+                'product__name',
+                'product__barcode',
+                'product__category__name',
+            ).annotate(current_quantity=Sum('quantity'))
         )
-        
-        # Create a map for quick lookup
+        sales_data = sales_query.values('product').annotate(total_quantity=Sum('quantity'))
         sales_map = {item['product']: item['total_quantity'] for item in sales_data}
-        
-        # 方案 A：从 InventoryTransaction 推算期初库存（warehouse=null 与 Inventory 域一致）
-        txn_sums = InventoryTransaction.objects.filter(
-            created_at__range=(start_date, end_date_upper),
-            warehouse__isnull=True
-        ).exclude(
+
+        txn_sums = txn_base_query.exclude(
             transaction_type='ADJUST'
         ).values('product').annotate(
             total_in=Sum(Case(When(transaction_type='IN', then=F('quantity')), default=Value(0))),
             total_out=Sum(Case(When(transaction_type='OUT', then=F('quantity')), default=Value(0)))
         )
         txn_map = {item['product']: item for item in txn_sums}
-        
-        # 统计期内有 ADJUST 的商品，降级使用近似公式
         products_with_adjust = set(
-            InventoryTransaction.objects.filter(
-                created_at__range=(start_date, end_date_upper),
-                warehouse__isnull=True,
+            txn_base_query.filter(
                 transaction_type='ADJUST'
             ).values_list('product_id', flat=True).distinct()
         )
-        
-        # Calculate turnover for each product
+
         product_turnover = []
         for inv in inventory_data:
-            sold_quantity = sales_map.get(inv.product.id, 0)
-            current_quantity = inv.quantity
-            txn = txn_map.get(inv.product.id, {'total_in': 0, 'total_out': 0})
-            
-            # 平均库存：方案 A 基于交易推算，ADJUST 或异常时降级
-            if inv.product.id in products_with_adjust:
+            product_id = inv['product_id']
+            sold_quantity = sales_map.get(product_id, 0) or 0
+            current_quantity = inv['current_quantity'] or 0
+            txn = txn_map.get(product_id, {'total_in': 0, 'total_out': 0})
+
+            if product_id in products_with_adjust:
                 average_inventory = (current_quantity + sold_quantity) / 2
             else:
                 beginning = current_quantity - (txn.get('total_in') or 0) + (txn.get('total_out') or 0)
                 if beginning < 0:
-                    average_inventory = (0 + current_quantity) / 2  # 数据异常保护
+                    average_inventory = (0 + current_quantity) / 2
                 else:
                     average_inventory = (beginning + current_quantity) / 2
-            
-            # Calculate turnover rate (annualized)
+
             if average_inventory > 0:
                 turnover_rate = (sold_quantity / average_inventory) * (365 / days)
                 turnover_days = 365 / turnover_rate if turnover_rate > 0 else 9999
             else:
                 turnover_rate = 0
-                turnover_days = 9999  # 无销售时显示为大值，模板显示为 ---
-                
+                turnover_days = 9999
+
             product_turnover.append({
-                'product_id': inv.product.id,
-                'product_name': inv.product.name,
-                'product_code': inv.product.barcode,
-                'category': inv.product.category.name,
+                'product_id': product_id,
+                'product_name': inv.get('product__name') or '',
+                'product_code': inv.get('product__barcode') or '',
+                'category': inv.get('product__category__name') or '',
                 'current_stock': current_quantity,
                 'sold_quantity': sold_quantity,
                 'avg_stock': average_inventory,
                 'turnover_rate': turnover_rate,
-                'turnover_days': turnover_days
+                'turnover_days': turnover_days,
             })
-            
-        # Sort by turnover rate (descending)
+
         product_turnover.sort(key=lambda x: x['turnover_rate'], reverse=True)
-            
         return product_turnover
     
     @staticmethod
-    def get_profit_report(start_date=None, end_date=None, sale_type=None):
+    def get_profit_report(start_date=None, end_date=None, sale_type=None, warehouse_ids=None):
         """
         Generate a profit report for the given period.
         
@@ -265,6 +351,7 @@ class ReportService:
             start_date: Optional start date for filtering
             end_date: Optional end date for filtering
             sale_type: Optional sale type filter - 'retail', 'wholesale', or None for all
+            warehouse_ids: Optional list of warehouse ids for scope filtering
             
         Returns:
             dict: Profit report data
@@ -280,6 +367,12 @@ class ReportService:
         sales_query = Sale.objects.filter(
             created_at__range=(start_date, end_date_upper)
         )
+
+        if warehouse_ids is not None:
+            if warehouse_ids:
+                sales_query = sales_query.filter(warehouse_id__in=warehouse_ids)
+            else:
+                sales_query = sales_query.none()
         
         # Apply sale type filter if specified
         if sale_type and sale_type in ['retail', 'wholesale']:

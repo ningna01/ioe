@@ -10,7 +10,7 @@ import datetime
 from inventory.models.product import Product, Category, Store
 from inventory.models.member import Member, MemberLevel
 from inventory.models.sales import Sale, SaleItem
-from inventory.models.inventory import Inventory
+from inventory.models.inventory import Inventory, update_inventory
 
 fake = Faker('zh_CN')
 
@@ -60,7 +60,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f'已创建 {len(categories)} 个商品分类'))
 
                 # 创建商品
-                products = self.create_products(categories, num_products)
+                products = self.create_products(categories, num_products, admin_user)
                 self.stdout.write(self.style.SUCCESS(f'已创建 {len(products)} 个商品'))
 
                 # 创建会员
@@ -136,7 +136,7 @@ class Command(BaseCommand):
             categories.append(category)
         return categories
 
-    def create_products(self, categories, num_products):
+    def create_products(self, categories, num_products, operator):
         """创建商品"""
         products = []
         colors = ['红色', '蓝色', '黑色', '白色', '灰色', '绿色', '黄色', '紫色']
@@ -179,14 +179,28 @@ class Command(BaseCommand):
             )
             
             if created:
-                # 创建库存
+                warning_level = random.randint(5, 15)
+                initial_quantity = random.randint(10, 100)
+
+                # 先确保库存档案存在；数量写入统一走库存服务入口
                 inventory, _ = Inventory.objects.get_or_create(
                     product=product,
-                    defaults={
-                        'quantity': random.randint(10, 100),
-                        'warning_level': random.randint(5, 15),
-                    }
+                    defaults={'warning_level': warning_level}
                 )
+                if inventory.warning_level != warning_level:
+                    inventory.warning_level = warning_level
+                    inventory.save(update_fields=['warning_level'])
+
+                if initial_quantity > 0:
+                    success, _, stock_result = update_inventory(
+                        product=product,
+                        quantity=initial_quantity,
+                        transaction_type='IN',
+                        operator=operator,
+                        notes='样例数据初始化库存'
+                    )
+                    if not success:
+                        raise ValueError(f'初始化商品库存失败: {stock_result}')
                 products.append(product)
         
         return products

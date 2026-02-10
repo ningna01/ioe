@@ -5,6 +5,27 @@
 
 {% block content %}
 <div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col-lg-8">
+            <h4 class="mb-1">经营看板</h4>
+            <p class="text-muted mb-0">当前仓库范围：{{ warehouse_scope_label }}</p>
+        </div>
+        <div class="col-lg-4">
+            <form method="get" class="text-lg-end">
+                <label class="form-label small text-muted mb-1">仓库范围</label>
+                <div class="input-group">
+                    <select name="warehouse" class="form-select">
+                        <option value="all" {% if selected_warehouse == 'all' %}selected{% endif %}>全部可见仓库</option>
+                        {% for warehouse in warehouses %}
+                        <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id|stringformat:'s' %}selected{% endif %}>{{ warehouse.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-outline-primary">应用</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- 统计卡片 -->
     <div class="row mb-4">
         <div class="col-xl-3 col-md-6">

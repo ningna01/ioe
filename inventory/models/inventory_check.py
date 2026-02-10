@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 
 from .product import Product
+from .warehouse import Warehouse
 
 
 class InventoryCheck(models.Model):
@@ -30,6 +31,14 @@ class InventoryCheck(models.Model):
         verbose_name='审核人'
     )
     approved_at = models.DateTimeField(null=True, blank=True, verbose_name='审核时间')
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='inventory_checks',
+        verbose_name='仓库'
+    )
     
     class Meta:
         verbose_name = '库存盘点'

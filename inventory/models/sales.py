@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 
 from .product import Product
+from .warehouse import Warehouse
 # from .member import Member
 
 
@@ -35,6 +36,14 @@ class Sale(models.Model):
     balance_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='余额支付')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     operator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='操作员')
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='sales',
+        verbose_name='仓库'
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='COMPLETED', verbose_name='状态')
     remark = models.TextField(blank=True, verbose_name='备注')
 
@@ -101,6 +110,8 @@ class SaleItem(models.Model):
             raise ValidationError('数量必须大于0')
     
     def save(self, *args, **kwargs):
+        sync_sale_totals = kwargs.pop('sync_sale_totals', True)
+
         # 如果实际价格没有设置，默认使用标准价格
         if self.actual_price is None:
             self.actual_price = self.price
@@ -110,20 +121,11 @@ class SaleItem(models.Model):
         
         # 保存SaleItem
         super().save(*args, **kwargs)
-        
-        # 更新Sale的总金额
-        self.sale.update_total_amount()
-        self.sale.save()
-        
-        # 更新库存
-        from .inventory import update_inventory
-        update_inventory(
-            product=self.product,
-            quantity=-self.quantity,  # 负数表示减少库存
-            transaction_type='OUT',
-            operator=self.sale.operator,
-            notes=f'销售单 #{self.sale.id}'
-        )
+
+        # 销售明细模型不再隐式写库存；库存写入口统一由服务层显式触发。
+        if sync_sale_totals:
+            self.sale.update_total_amount()
+            self.sale.save()
     
     class Meta:
         verbose_name = '销售明细'

@@ -78,16 +78,18 @@ def barcode_product_create(request):
             except ValueError:
                 initial_stock = 0
                 
-            # 检查是否已存在该商品的库存记录
-            inventory_record, created = inventory.models.Inventory.objects.get_or_create(
-                product=product,
-                defaults={'quantity': initial_stock}
-            )
-            
-            # 如果已存在库存记录，则更新数量
-            if not created:
-                inventory_record.quantity += initial_stock
-                inventory_record.save()
+            # 确保库存档案存在；数量变更统一走库存服务入口
+            inventory.models.Inventory.objects.get_or_create(product=product)
+            if initial_stock > 0:
+                success, _, stock_result = inventory.models.update_inventory(
+                    product=product,
+                    quantity=initial_stock,
+                    transaction_type='IN',
+                    operator=request.user,
+                    notes='条码建档时设置初始库存'
+                )
+                if not success:
+                    messages.warning(request, f'商品已创建，但初始库存写入失败: {stock_result}')
             
             # 记录操作日志
             OperationLog.objects.create(

@@ -1,6 +1,7 @@
 from django import forms
 
 from inventory.models import InventoryTransaction, Product, Warehouse
+from inventory.services.warehouse_scope_service import WarehouseScopeService
 
 
 class InventoryTransactionForm(forms.ModelForm):
@@ -48,16 +49,21 @@ class InventoryTransactionForm(forms.ModelForm):
         }
     
     def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
         # 使用select_related优化查询
         self.fields['product'].queryset = Product.objects.filter(is_active=True).select_related('category')
-        
-        # 设置默认仓库为初始值
-        try:
-            default_warehouse = Warehouse.objects.get(is_default=True)
+
+        if self.user is not None:
+            accessible_warehouses = WarehouseScopeService.get_accessible_warehouses(self.user)
+            self.fields['warehouse'].queryset = accessible_warehouses
+            default_warehouse = WarehouseScopeService.get_default_warehouse(self.user)
+        else:
+            self.fields['warehouse'].queryset = Warehouse.objects.filter(is_active=True).order_by('name')
+            default_warehouse = Warehouse.objects.filter(is_default=True, is_active=True).first()
+
+        if default_warehouse:
             self.fields['warehouse'].initial = default_warehouse.pk
-        except Warehouse.DoesNotExist:
-            pass  # 没有默认仓库时不设置初始值
         
         # 添加响应式布局的辅助类
         for field in self.fields.values():
@@ -75,4 +81,7 @@ class InventoryTransactionForm(forms.ModelForm):
         warehouse = self.cleaned_data.get('warehouse')
         if warehouse and not warehouse.is_active:
             raise forms.ValidationError('所选仓库已被禁用，请选择其他仓库')
-        return warehouse 
+        if warehouse and self.user is not None:
+            if not WarehouseScopeService.can_access_warehouse(self.user, warehouse):
+                raise forms.ValidationError('您无权操作该仓库')
+        return warehouse

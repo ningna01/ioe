@@ -6,6 +6,7 @@ from django.db.models import Q, Count, Sum
 from django.core.paginator import Paginator
 from django.urls import reverse
 from django.utils import timezone
+from django.contrib.contenttypes.models import ContentType
 
 import csv
 import io
@@ -17,7 +18,7 @@ from datetime import datetime
 
 from inventory.models import (
     Product, Category, ProductImage, ProductBatch,
-    Inventory, InventoryTransaction, Supplier, OperationLog
+    Inventory, InventoryTransaction, Supplier, OperationLog, update_inventory
 )
 from inventory.forms import (
     ProductForm, CategoryForm, ProductBatchForm,
@@ -242,36 +243,47 @@ def product_create(request):
             if initial_quantity < 0:
                 initial_quantity = 0
                 
-            # 使用数据库事务确保数据一致性
-            from django.db import transaction
-            with transaction.atomic():
-                inventory = Inventory.objects.create(
+            inventory, _ = Inventory.objects.get_or_create(
+                product=product,
+                defaults={'warning_level': warning_level}
+            )
+            if inventory.warning_level != warning_level:
+                inventory.warning_level = warning_level
+                inventory.save(update_fields=['warning_level'])
+
+            stock_update_error = None
+            if initial_quantity > 0:
+                stock_notes = (
+                    f"source=product_create | intent=initial_stock_setup | "
+                    f"product_id={product.id} | quantity={initial_quantity} | warning_level={warning_level}"
+                )
+                success, inventory_obj, stock_result = update_inventory(
                     product=product,
                     quantity=initial_quantity,
-                    warning_level=warning_level
+                    transaction_type='IN',
+                    operator=request.user,
+                    notes=stock_notes
                 )
-                
-                # 如果提供了初始数量，创建入库交易记录
-                if initial_quantity > 0:
-                    InventoryTransaction.objects.create(
-                        product=product,
-                        transaction_type='IN',
-                        quantity=initial_quantity,
-                        operator=request.user,
-                        notes='商品创建时设置的初始库存'
-                    )
-                    
-                    # 记录操作日志
-                    from django.contrib.contenttypes.models import ContentType
+                if success:
+                    inventory = inventory_obj
+                    transaction_obj = stock_result
                     OperationLog.objects.create(
                         operator=request.user,
                         operation_type='INVENTORY',
-                        details=f'商品创建时设置初始库存: {product.name} x {initial_quantity}',
-                        related_object_id=inventory.id,
-                        related_content_type=ContentType.objects.get_for_model(Inventory)
+                        details=(
+                            f"商品初始库存写入: 商品={product.name}; 请求数量={initial_quantity}; "
+                            f"变更=+{initial_quantity}; 当前库存={inventory.quantity}; "
+                            f"交易ID={transaction_obj.id}; 来源=product_create"
+                        ),
+                        related_object_id=transaction_obj.id,
+                        related_content_type=ContentType.objects.get_for_model(InventoryTransaction)
                     )
-            
-            if initial_quantity > 0:
+                else:
+                    stock_update_error = stock_result
+
+            if stock_update_error:
+                messages.error(request, f'商品 {product.name} 创建成功，但初始库存写入失败: {stock_update_error}')
+            elif initial_quantity > 0:
                 messages.success(request, f'商品 {product.name} 创建成功，初始库存已设置为 {initial_quantity}')
             else:
                 messages.success(request, f'商品 {product.name} 创建成功')
@@ -355,16 +367,13 @@ def product_update(request, pk):
             if 'warning_level' in form.cleaned_data and form.cleaned_data['warning_level'] is not None:
                 warning_level = form.cleaned_data['warning_level']
                 
-            try:
-                inventory = Inventory.objects.get(product=product)
+            inventory, _ = Inventory.objects.get_or_create(
+                product=product,
+                defaults={'warning_level': warning_level}
+            )
+            if inventory.warning_level != warning_level:
                 inventory.warning_level = warning_level
-                inventory.save()
-            except Inventory.DoesNotExist:
-                Inventory.objects.create(
-                    product=product,
-                    quantity=0,
-                    warning_level=warning_level
-                )
+                inventory.save(update_fields=['warning_level'])
             
             messages.success(request, f'商品 {product.name} 更新成功')
             # 修改重定向，解决模板不存在的问题
@@ -627,11 +636,10 @@ def product_bulk_create(request):
                     is_active=True
                 )
                 
-                # 创建库存记录
-                Inventory.objects.create(
+                # 创建库存记录（数量写入统一走库存服务，此处仅确保库存档案存在）
+                Inventory.objects.get_or_create(
                     product=product,
-                    quantity=0,
-                    warning_level=5
+                    defaults={'warning_level': 5}
                 )
                 
                 created_count += 1
@@ -672,6 +680,17 @@ def product_import(request):
             # 处理CSV文件
             try:
                 result = product_service.import_products_from_csv(csv_file, request.user)
+
+                OperationLog.objects.create(
+                    operator=request.user,
+                    operation_type='INVENTORY',
+                    details=(
+                        f"商品导入完成: source=product_import; strategy={result.get('strategy', 'unknown')}; "
+                        f"success={result['success']}; skipped={result['skipped']}; failed={result['failed']}"
+                    ),
+                    related_object_id=request.user.id,
+                    related_content_type=ContentType.objects.get_for_model(request.user.__class__),
+                )
                 
                 messages.success(request, f"成功导入 {result['success']} 个商品. {result['skipped']} 个被跳过, {result['failed']} 个失败.")
                 
@@ -690,6 +709,13 @@ def product_import(request):
                 return redirect('product_list')
             
             except Exception as e:
+                OperationLog.objects.create(
+                    operator=request.user,
+                    operation_type='INVENTORY',
+                    details=f"商品导入失败: source=product_import; reason={str(e)}",
+                    related_object_id=request.user.id,
+                    related_content_type=ContentType.objects.get_for_model(request.user.__class__),
+                )
                 messages.error(request, f"导入过程中发生错误: {str(e)}")
                 return render(request, 'inventory/product/product_import.html', {'form': form})
     else:

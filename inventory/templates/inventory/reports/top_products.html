@@ -15,6 +15,7 @@
             <p class="text-muted">
                 日期范围: {{ start_date|date:"Y-m-d" }} 至 {{ end_date|date:"Y-m-d" }}
             </p>
+            <p class="text-muted">仓库范围: {{ warehouse_scope_label }}</p>
         </div>
         <div class="col-md-4 text-md-end">
             <a href="{% url 'reports_index' %}" class="btn btn-outline-secondary">
@@ -34,14 +35,23 @@
                     <form method="post">
                         {% csrf_token %}
                         <div class="row">
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 {{ form.start_date|as_crispy_field }}
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 {{ form.end_date|as_crispy_field }}
                             </div>
                             <div class="col-md-2">
                                 {{ form.limit|as_crispy_field }}
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">仓库</label>
+                                <select name="warehouse" class="form-select">
+                                    <option value="all" {% if selected_warehouse == 'all' %}selected{% endif %}>全部</option>
+                                    {% for warehouse in warehouses %}
+                                    <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id|stringformat:'s' %}selected{% endif %}>{{ warehouse.name }}</option>
+                                    {% endfor %}
+                                </select>
                             </div>
                             <div class="col-md-2 d-flex align-items-end">
                                 <button type="submit" class="btn btn-primary w-100">查询</button>

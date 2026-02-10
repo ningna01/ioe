@@ -14,6 +14,7 @@ from inventory.models import Product, Category, ProductImage, ProductBatch, Inve
 def import_products_from_csv(csv_file, user):
     """从CSV文件导入商品"""
     result = {
+        'strategy': 'row_atomic',
         'success': 0,
         'skipped': 0,
         'failed': 0,
@@ -21,9 +22,19 @@ def import_products_from_csv(csv_file, user):
     }
     
     # 读取CSV文件
-    decoded_file = csv_file.read().decode('utf-8')
+    raw_content = csv_file.read()
+    try:
+        decoded_file = raw_content.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        try:
+            decoded_file = raw_content.decode('gb18030')
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"CSV 编码错误，请使用 UTF-8 或 GB18030 编码: {exc}") from exc
     csv_data = csv.reader(io.StringIO(decoded_file))
-    headers = next(csv_data)  # 获取表头
+    try:
+        headers = next(csv_data)  # 获取表头
+    except StopIteration as exc:
+        raise ValueError("CSV 文件为空，缺少表头") from exc
     
     # 验证必要的表头
     required_headers = ['name', 'retail_price']
@@ -108,12 +119,14 @@ def import_products_from_csv(csv_file, user):
                     specification=row[specification_idx].strip() if specification_idx >= 0 and row[specification_idx] else "",
                 )
                 
-                # 创建初始库存记录
-                Inventory.objects.create(
+                # 仅确保库存档案存在；库存数量变更统一走库存服务
+                inventory, _ = Inventory.objects.get_or_create(
                     product=product,
-                    quantity=0,
-                    warning_level=5
+                    defaults={'warning_level': 5}
                 )
+                if inventory.warning_level != 5:
+                    inventory.warning_level = 5
+                    inventory.save(update_fields=['warning_level'])
                 
                 result['success'] += 1
                 

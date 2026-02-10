@@ -21,11 +21,9 @@ from django.conf.urls.static import static
 from django.contrib.auth import views as auth_views
 
 # 导入视图
-from . import views
 from . import views_barcode
 from . import views_category
 from . import views_inventory_check
-from . import views_system
 from . import views_report
 
 # 导入重构后的视图模块（member_views已禁用，删除）
@@ -47,6 +45,8 @@ urlpatterns = [
     path('products/<int:pk>/edit/', product_views.product_update, name='product_edit'),
     path('products/<int:pk>/', product_views.product_detail, name='product_detail'),
     path('products/<int:pk>/delete/', product_views.product_delete, name='product_delete'),
+    path('products/import/', product_views.product_import, name='product_import'),
+    path('products/export/', product_views.product_export, name='product_export'),
     
     # 使用新的条码视图
     path('products/barcode/', views_barcode.barcode_product_create, name='barcode_product_create'),

@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q, Sum, Count, Avg, Max
-from django.db import models, transaction, connection
+from django.db import transaction, connection
 from django.utils import timezone
 from datetime import datetime, timedelta, date
 from decimal import Decimal, InvalidOperation
@@ -14,8 +14,21 @@ from django.conf import settings
 from django.utils.safestring import mark_safe
 from django.urls import reverse
 
-from inventory.models import Sale, SaleItem, Inventory, InventoryTransaction, OperationLog, Product, Category, Supplier  # Member, MemberTransaction, MemberLevel 已禁用
+from inventory.models import (
+    Sale,
+    SaleItem,
+    Inventory,
+    WarehouseInventory,
+    OperationLog,
+    Product,
+    Category,
+    Supplier,
+    Warehouse,
+    check_inventory,
+    update_inventory,
+)  # Member, MemberTransaction, MemberLevel 已禁用
 from inventory.forms import SaleForm, SaleItemForm
+from inventory.services.warehouse_scope_service import WarehouseScopeService
 from inventory.utils.query_utils import paginate_queryset
 
 def _get_sale_status(sale):
@@ -41,11 +54,73 @@ def _is_sale_deleted(sale):
     ).exists()
 
 
+def _get_sale_for_user_or_404(user, sale_id):
+    sale = get_object_or_404(Sale, pk=sale_id)
+    WarehouseScopeService.ensure_sale_access(user, sale)
+    return sale
+
+
+def _get_available_stock_quantity(product, warehouse=None):
+    """返回指定仓库（或全局）当前可用库存数量。"""
+    if warehouse is not None:
+        warehouse_inventory = WarehouseInventory.objects.filter(
+            product=product,
+            warehouse=warehouse
+        ).only('quantity').first()
+        return warehouse_inventory.quantity if warehouse_inventory else 0
+
+    inventory = Inventory.objects.filter(product=product).only('quantity').first()
+    return inventory.quantity if inventory else 0
+
+
+def _build_sale_inventory_notes(*, source, intent, sale, product, quantity, user_note=''):
+    """统一销售链路库存交易备注，便于回放和排障。"""
+    parts = [
+        f"source={source}",
+        f"intent={intent}",
+        f"sale_id={sale.id}",
+        f"warehouse_id={sale.warehouse_id}",
+        f"product_id={product.id}",
+        f"quantity={quantity}",
+    ]
+    cleaned_user_note = (user_note or '').strip()
+    if cleaned_user_note:
+        parts.append(f"user_note={cleaned_user_note}")
+    return " | ".join(parts)
+
+
+def _create_sale_stock_change_log(
+    *,
+    operator,
+    sale,
+    product,
+    action,
+    requested_quantity,
+    delta_quantity,
+    current_quantity,
+    transaction_obj,
+    source,
+):
+    warehouse_name = sale.warehouse.name if sale.warehouse else '未绑定仓库'
+    OperationLog.objects.create(
+        operator=operator,
+        operation_type='SALE',
+        details=(
+            f'销售库存变更: 单据#{sale.id}; 动作={action}; 商品={product.name}; '
+            f'仓库={warehouse_name}; 请求数量={requested_quantity}; 变更={delta_quantity:+d}; '
+            f'当前库存={current_quantity}; 交易ID={transaction_obj.id}; 来源={source}'
+        ),
+        related_object_id=sale.id,
+        related_content_type=ContentType.objects.get_for_model(Sale)
+    )
+
+
 @login_required
 def sale_list(request):
     """销售单列表视图"""
     today = timezone.now().date()
-    base_sales = Sale.objects.select_related('operator').prefetch_related('items').order_by('-created_at')
+    base_sales = Sale.objects.select_related('operator', 'warehouse').prefetch_related('items').order_by('-created_at')
+    base_sales = WarehouseScopeService.filter_sales_queryset(request.user, base_sales)
     # 统计口径固定为原始销售数据，不受删除可见性筛选影响
     today_sales = base_sales.filter(created_at__date=today).aggregate(total=Sum('total_amount'))['total'] or 0
     month_sales = base_sales.filter(created_at__month=today.month).aggregate(total=Sum('total_amount'))['total'] or 0
@@ -104,7 +179,7 @@ def sale_list(request):
 @login_required
 def sale_detail(request, sale_id):
     """销售单详情视图"""
-    sale = get_object_or_404(Sale, pk=sale_id)
+    sale = _get_sale_for_user_or_404(request.user, sale_id)
     items = SaleItem.objects.filter(sale=sale).select_related('product')
     
     # 确保销售单金额与商品项总和一致
@@ -142,6 +217,23 @@ def sale_create(request):
         for key, value in request.POST.items():
             print(f"{key}: {value}")
         print("=" * 80)
+
+        available_warehouses = WarehouseScopeService.get_accessible_warehouses(request.user)
+        warehouse_id = request.POST.get('warehouse')
+        if warehouse_id:
+            try:
+                selected_warehouse = available_warehouses.get(id=int(warehouse_id))
+            except (ValueError, TypeError, Warehouse.DoesNotExist):
+                messages.error(request, '所选仓库无效或未授权，请重新选择')
+                return redirect('sale_create')
+        else:
+            selected_warehouse = WarehouseScopeService.get_default_warehouse(request.user)
+            if selected_warehouse is None:
+                selected_warehouse = available_warehouses.first()
+
+        if selected_warehouse is None:
+            messages.error(request, '当前用户没有可用仓库，请先配置仓库授权')
+            return redirect('sale_create')
         
         # 获取前端提交的商品信息
         products_data = []
@@ -222,9 +314,8 @@ def sale_create(request):
                     valid_products = False
                     continue
 
-                # 检查库存
-                inventory_obj = Inventory.objects.get(product=product)
-                if inventory_obj.quantity >= quantity:
+                # 检查库存（按销售单仓库维度）
+                if check_inventory(product, quantity, selected_warehouse):
                     # 确保使用Decimal类型计算小计，避免精度问题
                     subtotal = price * Decimal(str(quantity))
                     print(f"商品 {product.name} 的小计: 价格={price} * 数量={quantity} = {subtotal}")
@@ -235,20 +326,22 @@ def sale_create(request):
                         'price': price,
                         'subtotal': subtotal,
                         'sale_type': sale_type,
-                        'inventory': inventory_obj
                     })
                 else:
-                    print(f"Insufficient stock for product {product.id} ({product.name}): needed={quantity}, available={inventory_obj.quantity}")
-                    messages.warning(request, f"商品 {product.name} 库存不足 (需要 {quantity}, 可用 {inventory_obj.quantity})。该商品未添加到销售单。")
+                    available_quantity = _get_available_stock_quantity(product, selected_warehouse)
+                    print(
+                        f"Insufficient stock for product {product.id} ({product.name}): "
+                        f"needed={quantity}, available={available_quantity}, warehouse={selected_warehouse.id if selected_warehouse else 'global'}"
+                    )
+                    messages.warning(
+                        request,
+                        f"商品 {product.name} 库存不足 (需要 {quantity}, 可用 {available_quantity})。该商品未添加到销售单。"
+                    )
                     valid_products = False
 
             except Product.DoesNotExist:
                 print(f"Error processing sale item: Product with ID {item_data['product_id']} does not exist.")
                 messages.error(request, f"处理商品时出错：无效的商品 ID {item_data['product_id']}。")
-                valid_products = False
-            except Inventory.DoesNotExist:
-                print(f"Error processing sale item: Inventory record for product {item_data['product_id']} does not exist.")
-                messages.error(request, f"处理商品 {product.name} 时出错：找不到库存记录。")
                 valid_products = False
             except Exception as e:
                 print(f"Unexpected error processing sale item for product ID {item_data.get('product_id', 'N/A')}: {type(e).__name__} - {e}")
@@ -372,6 +465,7 @@ def sale_create(request):
             # 创建销售单，但暂不保存
             sale = form.save(commit=False)
             sale.operator = request.user
+            sale.warehouse = selected_warehouse
             
             # 设置金额
             sale.total_amount = total_amount
@@ -417,8 +511,8 @@ def sale_create(request):
                             sale_item.subtotal = sale_item.price * sale_item.quantity
                             print(f"重新计算小计: {sale_item.price} * {sale_item.quantity} = {sale_item.subtotal}")
                         
-                        # 保存SaleItem到数据库
-                        models.Model.save(sale_item)
+                        # 保存SaleItem到数据库（库存写入由后续服务层统一处理）
+                        sale_item.save(sync_sale_totals=False)
                         
                         # 打印保存后的数据，确认数据正确
                         print(f"保存的SaleItem - ID: {sale_item.id}, 商品: {sale_item.product.name}, "
@@ -436,27 +530,38 @@ def sale_create(request):
                         sale_item = SaleItem.objects.get(id=sale_item.id)
                         print(f"重新加载后的SaleItem - ID: {sale_item.id}, 价格: {sale_item.price}, 小计: {sale_item.subtotal}")
                         
-                        # 更新库存
-                        inventory_obj = item_data['inventory']
-                        inventory_obj.quantity -= item_data['quantity']
-                        inventory_obj.save()
-                        
-                        # 创建库存交易记录
-                        InventoryTransaction.objects.create(
+                        # 统一走库存服务写入口，避免视图层直改库存
+                        stock_notes = _build_sale_inventory_notes(
+                            source='sale_create',
+                            intent='sale_create_item_out',
+                            sale=sale,
                             product=item_data['product'],
-                            transaction_type='OUT',
                             quantity=item_data['quantity'],
-                            operator=request.user,
-                            notes=f'销售单号：{sale.id}'
                         )
-                        
-                        # 记录操作日志
-                        OperationLog.objects.create(
+                        success, inventory_obj, stock_result = update_inventory(
+                            product=item_data['product'],
+                            warehouse=selected_warehouse,
+                            quantity=-item_data['quantity'],
+                            transaction_type='OUT',
                             operator=request.user,
-                            operation_type='SALE',
-                            details=f'销售商品 {item_data["product"].name} 数量 {item_data["quantity"]}',
-                            related_object_id=sale.id,
-                            related_content_type=ContentType.objects.get_for_model(Sale)
+                            notes=stock_notes
+                        )
+                        if not success:
+                            raise ValueError(
+                                f"商品 {item_data['product'].name} 库存更新失败: {stock_result}"
+                            )
+                        
+                        stock_transaction = stock_result
+                        _create_sale_stock_change_log(
+                            operator=request.user,
+                            sale=sale,
+                            product=item_data['product'],
+                            action='出库',
+                            requested_quantity=item_data['quantity'],
+                            delta_quantity=-item_data['quantity'],
+                            current_quantity=inventory_obj.quantity,
+                            transaction_obj=stock_transaction,
+                            source='sale_create',
                         )
                     
                     # 如果有会员，更新会员积分和消费记录（已禁用）
@@ -470,7 +575,11 @@ def sale_create(request):
                     OperationLog.objects.create(
                         operator=request.user,
                         operation_type='SALE',
-                        details=f'完成销售单 #{sale.id}，总金额: {sale.final_amount}，支付方式: {sale.get_payment_method_display()}',
+                        details=(
+                            f'完成销售单 #{sale.id}，总金额: {sale.final_amount}，'
+                            f'支付方式: {sale.get_payment_method_display()}，仓库: {selected_warehouse.name}；'
+                            f'来源: sale_create'
+                        ),
                         related_object_id=sale.id,
                         related_content_type=ContentType.objects.get_for_model(Sale)
                     )
@@ -517,16 +626,32 @@ def sale_create(request):
     # from inventory.models import MemberLevel
     # member_levels = MemberLevel.objects.all()
     
+    warehouses = WarehouseScopeService.get_accessible_warehouses(request.user)
+    default_warehouse = WarehouseScopeService.get_default_warehouse(request.user)
+    selected_warehouse_id = request.POST.get('warehouse', '') if request.method == 'POST' else (
+        str(default_warehouse.id) if default_warehouse else ''
+    )
+
     return render(request, 'inventory/sale_form.html', {
-        'form': form
+        'form': form,
+        'warehouses': warehouses,
+        'selected_warehouse_id': selected_warehouse_id,
     })
 
 @login_required
 def sale_item_create(request, sale_id):
     """添加销售单商品视图"""
-    sale = get_object_or_404(Sale, id=sale_id)
+    sale = _get_sale_for_user_or_404(request.user, sale_id)
+
+    if _is_sale_completed(sale):
+        messages.error(request, '已完成的销售单不能新增商品')
+        return redirect('sale_detail', sale_id=sale.id)
+    if _is_sale_deleted(sale):
+        messages.error(request, '已删除的销售单不能新增商品')
+        return redirect('sale_detail', sale_id=sale.id)
+
     if request.method == 'POST':
-        form = SaleItemForm(request.POST)
+        form = SaleItemForm(request.POST, warehouse=sale.warehouse)
         if form.is_valid():
             sale_item = form.save(commit=False)
             sale_item.sale = sale
@@ -536,38 +661,64 @@ def sale_item_create(request, sale_id):
                 sale_item.price = sale_item.actual_price
             elif hasattr(sale_item, 'price') and not hasattr(sale_item, 'actual_price'):
                 sale_item.actual_price = sale_item.price
-            
-            inventory = Inventory.objects.get(product=sale_item.product)
-            if inventory.quantity >= sale_item.quantity:
-                inventory.quantity -= sale_item.quantity
-                inventory.save()
-                
-                sale_item.save()
-                sale.update_total_amount()
-                
-                transaction = InventoryTransaction.objects.create(
-                    product=sale_item.product,
-                    transaction_type='OUT',
-                    quantity=sale_item.quantity,
-                    operator=request.user,
-                    notes=f'销售单号：{sale.id}'
+
+            if not check_inventory(sale_item.product, sale_item.quantity, sale.warehouse):
+                available_quantity = _get_available_stock_quantity(sale_item.product, sale.warehouse)
+                messages.error(
+                    request,
+                    f'商品 {sale_item.product.name} 库存不足（当前可用: {available_quantity}，请求数量: {sale_item.quantity}）'
                 )
-                
+                sale_items = sale.items.all()
+                return render(request, 'inventory/sale_item_form.html', {
+                    'form': form,
+                    'sale': sale,
+                    'items': sale_items
+                })
+
+            try:
+                with transaction.atomic():
+                    # 保存销售项；库存写入由后续服务层统一处理
+                    sale_item.save(sync_sale_totals=False)
+                    sale.update_total_amount()
+                    sale.save()
+
+                    stock_notes = _build_sale_inventory_notes(
+                        source='sale_item_create',
+                        intent='sale_item_create_out',
+                        sale=sale,
+                        product=sale_item.product,
+                        quantity=sale_item.quantity,
+                    )
+                    success, inventory_obj, stock_result = update_inventory(
+                        product=sale_item.product,
+                        warehouse=sale.warehouse,
+                        quantity=-sale_item.quantity,
+                        transaction_type='OUT',
+                        operator=request.user,
+                        notes=stock_notes
+                    )
+                    if not success:
+                        raise ValueError(stock_result)
+
+                    stock_transaction = stock_result
+                    _create_sale_stock_change_log(
+                        operator=request.user,
+                        sale=sale,
+                        product=sale_item.product,
+                        action='出库',
+                        requested_quantity=sale_item.quantity,
+                        delta_quantity=-sale_item.quantity,
+                        current_quantity=inventory_obj.quantity,
+                        transaction_obj=stock_transaction,
+                        source='sale_item_create',
+                    )
+
                 messages.success(request, '商品添加成功')
-                
-                # 记录操作日志
-                OperationLog.objects.create(
-                    operator=request.user,
-                    operation_type='SALE',
-                    details=f'销售商品 {sale_item.product.name} 数量 {sale_item.quantity}',
-                    related_object_id=sale.id,
-                    related_content_type=ContentType.objects.get_for_model(Sale)
-                )
                 return redirect('sale_item_create', sale_id=sale.id)
-            else:
-                messages.error(request, '库存不足')
+            except Exception as e:
+                messages.error(request, f'商品添加失败: {str(e)}')
     else:
-        form = SaleItemForm()
+        form = SaleItemForm(warehouse=sale.warehouse)
     
     sale_items = sale.items.all()
     return render(request, 'inventory/sale_item_form.html', {
@@ -579,12 +730,20 @@ def sale_item_create(request, sale_id):
 @login_required
 def sale_complete(request, sale_id):
     """完成销售视图"""
-    sale = get_object_or_404(Sale, id=sale_id)
+    sale = _get_sale_for_user_or_404(request.user, sale_id)
+    if _is_sale_deleted(sale):
+        messages.error(request, '已删除的销售单不能执行完成操作')
+        return redirect('sale_detail', sale_id=sale.id)
+    if _is_sale_completed(sale):
+        messages.warning(request, '销售单已完成，请勿重复提交')
+        return redirect('sale_detail', sale_id=sale.id)
+
     if request.method == 'POST':
         form = SaleForm(request.POST, instance=sale)
         if form.is_valid():
             sale = form.save(commit=False)
             sale.operator = request.user
+            sale.status = 'COMPLETED'
             
             # 更新总金额（防止异常情况）
             sale.update_total_amount()
@@ -657,7 +816,10 @@ def sale_complete(request, sale_id):
             OperationLog.objects.create(
                 operator=request.user,
                 operation_type='SALE',
-                details=f'完成销售单 #{sale.id}，总金额: {sale.final_amount}，支付方式: {sale.get_payment_method_display()}',
+                details=(
+                    f'完成销售单 #{sale.id}，总金额: {sale.final_amount}，'
+                    f'支付方式: {sale.get_payment_method_display()}；来源: sale_complete'
+                ),
                 related_object_id=sale.id,
                 related_content_type=ContentType.objects.get_for_model(Sale)
             )
@@ -676,7 +838,7 @@ def sale_complete(request, sale_id):
 @login_required
 def sale_cancel(request, sale_id):
     """软删除销售单视图（仅隐藏，不影响业务数据）"""
-    sale = get_object_or_404(Sale, id=sale_id)
+    sale = _get_sale_for_user_or_404(request.user, sale_id)
 
     if _is_sale_deleted(sale):
         messages.warning(request, '销售单已删除，请勿重复操作')
@@ -694,7 +856,7 @@ def sale_cancel(request, sale_id):
             OperationLog.objects.create(
                 operator=request.user,
                 operation_type='SALE',
-                details=f'删除销售单 #{sale.id}，原因: {reason_text}',
+                details=f'删除销售单 #{sale.id}，原因: {reason_text}；来源: sale_cancel',
                 related_object_id=sale.id,
                 related_content_type=ContentType.objects.get_for_model(Sale)
             )
@@ -707,8 +869,11 @@ def sale_cancel(request, sale_id):
 @login_required
 def sale_delete_item(request, sale_id, item_id):
     """删除销售单商品视图"""
-    sale = get_object_or_404(Sale, id=sale_id)
-    item = get_object_or_404(SaleItem, id=item_id, sale=sale)
+    sale = _get_sale_for_user_or_404(request.user, sale_id)
+
+    if request.method != 'POST':
+        messages.error(request, '无效请求方式，删除操作必须使用 POST')
+        return redirect('sale_detail', sale_id=sale.id)
     
     # 检查销售单状态
     if _is_sale_completed(sale):
@@ -718,37 +883,53 @@ def sale_delete_item(request, sale_id, item_id):
     if _is_sale_deleted(sale):
         messages.error(request, '已删除的销售单不能修改')
         return redirect('sale_detail', sale_id=sale.id)
+
+    item = SaleItem.objects.select_related('product').filter(id=item_id, sale=sale).first()
+    if item is None:
+        messages.warning(request, '销售商品已删除，请勿重复提交')
+        return redirect('sale_item_create', sale_id=sale.id)
     
-    # 恢复库存
-    inventory, _ = Inventory.objects.get_or_create(
-        product=item.product,
-        defaults={'quantity': 0, 'warning_level': 10}
-    )
-    inventory.quantity += item.quantity
-    inventory.save()
-    
-    # 创建入库交易记录
-    InventoryTransaction.objects.create(
-        product=item.product,
-        transaction_type='IN',
-        quantity=item.quantity,
-        operator=request.user,
-        notes=f'从销售单 #{sale.id} 中删除商品，恢复库存'
-    )
-    
-    # 记录操作日志
-    OperationLog.objects.create(
-        operator=request.user,
-        operation_type='SALE',
-        details=f'从销售单 #{sale.id} 中删除商品 {item.product.name}',
-        related_object_id=sale.id,
-        related_content_type=ContentType.objects.get_for_model(Sale)
-    )
-    
-    # 删除商品并更新销售单总额
-    item.delete()
-    sale.update_total_amount()
-    sale.save()
+    try:
+        with transaction.atomic():
+            stock_notes = _build_sale_inventory_notes(
+                source='sale_delete_item',
+                intent='sale_delete_item_in',
+                sale=sale,
+                product=item.product,
+                quantity=item.quantity,
+                user_note='delete_item_restore_stock',
+            )
+            success, inventory_obj, stock_result = update_inventory(
+                product=item.product,
+                warehouse=sale.warehouse,
+                quantity=item.quantity,
+                transaction_type='IN',
+                operator=request.user,
+                notes=stock_notes
+            )
+            if not success:
+                raise ValueError(stock_result)
+
+            stock_transaction = stock_result
+            _create_sale_stock_change_log(
+                operator=request.user,
+                sale=sale,
+                product=item.product,
+                action='回补',
+                requested_quantity=item.quantity,
+                delta_quantity=item.quantity,
+                current_quantity=inventory_obj.quantity,
+                transaction_obj=stock_transaction,
+                source='sale_delete_item',
+            )
+
+            # 删除商品并更新销售单总额
+            item.delete()
+            sale.update_total_amount()
+            sale.save()
+    except Exception as e:
+        messages.error(request, f'删除销售商品失败: {str(e)}')
+        return redirect('sale_item_create', sale_id=sale.id)
     
     messages.success(request, '商品已从销售单中删除')
     return redirect('sale_item_create', sale_id=sale.id)

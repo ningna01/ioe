@@ -1,6 +1,7 @@
 from django import forms
 from django.utils import timezone
-from inventory.models import Category, InventoryCheck, InventoryCheckItem
+from inventory.models import Category, InventoryCheck, InventoryCheckItem, Warehouse
+from inventory.services.warehouse_scope_service import WarehouseScopeService
 
 
 class InventoryCheckForm(forms.ModelForm):
@@ -16,6 +17,19 @@ class InventoryCheckForm(forms.ModelForm):
             'data-bs-toggle': 'tooltip',
             'title': '选择要盘点的商品分类',
             'data-mobile-friendly': 'true'  # 标记为移动友好元素
+        })
+    )
+
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.filter(is_active=True).order_by('name'),
+        required=False,
+        label='仓库',
+        help_text='可选，不选择时将使用系统默认仓库',
+        widget=forms.Select(attrs={
+            'class': 'form-control form-select',
+            'aria-label': '仓库',
+            'style': 'height: 48px; font-size: 16px;',
+            'data-mobile-friendly': 'true'
         })
     )
     
@@ -56,7 +70,7 @@ class InventoryCheckForm(forms.ModelForm):
     
     class Meta:
         model = InventoryCheck
-        fields = ['name', 'description']
+        fields = ['name', 'description', 'warehouse']
         widgets = {
             'name': forms.TextInput(attrs={
                 'class': 'form-control',
@@ -79,12 +93,33 @@ class InventoryCheckForm(forms.ModelForm):
                 'maxlength': '500',  # 最大长度验证
                 'data-mobile-friendly': 'true'  # 标记为移动友好元素
             }),
+            'warehouse': forms.Select(attrs={
+                'class': 'form-control form-select',
+                'aria-label': '仓库',
+                'style': 'height: 48px; font-size: 16px;',
+                'data-mobile-friendly': 'true'
+            }),
         }
         
     def __init__(self, *args, **kwargs):
+        user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
         # 使用select_related优化查询
         self.fields['category'].queryset = Category.objects.all().order_by('name')
+        if user and user.is_authenticated:
+            scoped_warehouses = WarehouseScopeService.get_accessible_warehouses(user)
+            self.fields['warehouse'].queryset = scoped_warehouses
+            if not self.is_bound and not self.instance.pk:
+                default_warehouse = WarehouseScopeService.get_default_warehouse(user)
+                if default_warehouse:
+                    self.fields['warehouse'].initial = default_warehouse.pk
+        else:
+            self.fields['warehouse'].queryset = Warehouse.objects.filter(is_active=True).order_by('name')
+            # 默认选择系统默认仓库
+            if not self.is_bound and not self.instance.pk:
+                default_warehouse = Warehouse.objects.filter(is_default=True, is_active=True).first()
+                if default_warehouse:
+                    self.fields['warehouse'].initial = default_warehouse.pk
         
         # 添加响应式布局的辅助类
         for field in self.fields.values():
@@ -97,6 +132,12 @@ class InventoryCheckForm(forms.ModelForm):
         for field_name, field in self.fields.items():
             if not field.widget.attrs.get('placeholder'):
                 field.widget.attrs['placeholder'] = field.label
+
+    def clean_warehouse(self):
+        warehouse = self.cleaned_data.get('warehouse')
+        if warehouse and not warehouse.is_active:
+            raise forms.ValidationError('所选仓库已禁用，请选择其他仓库')
+        return warehouse
 
 
 class InventoryCheckItemForm(forms.ModelForm):
