@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📦 IOE 库存管理系统
+# 📦 IOE 多仓库库存管理系统
 
 [![Django](https://img.shields.io/badge/Django-4.2+-green.svg)](https://www.djangoproject.com/) &nbsp; [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/) &nbsp; [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
