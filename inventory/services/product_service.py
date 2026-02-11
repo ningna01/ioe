@@ -6,9 +6,31 @@ import csv
 import io
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Sum
 
-from inventory.models import Product, Category, ProductImage, ProductBatch, Inventory
+from inventory.models import (
+    Product,
+    Category,
+    ProductImage,
+    ProductBatch,
+    Warehouse,
+    WarehouseInventory,
+    UserWarehouseAccess,
+)
+from inventory.services.warehouse_scope_service import WarehouseScopeService
+
+
+def _resolve_import_target_warehouse(user):
+    if user and getattr(user, 'is_authenticated', False):
+        manageable_warehouses = WarehouseScopeService.get_accessible_warehouses(
+            user,
+            required_permission=UserWarehouseAccess.PERMISSION_PRODUCT_MANAGE,
+        )
+        preferred_default = WarehouseScopeService.get_default_warehouse(user)
+        if preferred_default and manageable_warehouses.filter(id=preferred_default.id).exists():
+            return preferred_default
+        return manageable_warehouses.first()
+    return Warehouse.objects.filter(is_active=True, is_default=True).first() or Warehouse.objects.filter(is_active=True).first()
 
 
 def import_products_from_csv(csv_file, user):
@@ -20,6 +42,9 @@ def import_products_from_csv(csv_file, user):
         'failed': 0,
         'failed_rows': []
     }
+    target_warehouse = _resolve_import_target_warehouse(user)
+    if target_warehouse is None:
+        raise ValueError("当前用户没有可用仓库，无法导入商品并初始化库存档案")
     
     # 读取CSV文件
     raw_content = csv_file.read()
@@ -119,10 +144,11 @@ def import_products_from_csv(csv_file, user):
                     specification=row[specification_idx].strip() if specification_idx >= 0 and row[specification_idx] else "",
                 )
                 
-                # 仅确保库存档案存在；库存数量变更统一走库存服务
-                inventory, _ = Inventory.objects.get_or_create(
+                # 仅确保仓库库存档案存在；库存数量变更统一走库存服务
+                inventory, _ = WarehouseInventory.objects.get_or_create(
                     product=product,
-                    defaults={'warning_level': 5}
+                    warehouse=target_warehouse,
+                    defaults={'warning_level': 5, 'quantity': 0}
                 )
                 if inventory.warning_level != 5:
                     inventory.warning_level = 5
@@ -162,10 +188,16 @@ def get_product_with_inventory(product_id):
     """获取商品及其库存信息"""
     try:
         product = Product.objects.get(id=product_id)
-        inventory = Inventory.objects.get(product=product)
+        inventory_qs = WarehouseInventory.objects.filter(product=product)
+        total_quantity = inventory_qs.aggregate(total=Sum('quantity'))['total'] or 0
+        first_inventory = inventory_qs.order_by('warehouse_id').first()
+        inventory = {
+            'quantity': int(total_quantity),
+            'warning_level': first_inventory.warning_level if first_inventory else 10,
+        }
         return {
             'product': product,
             'inventory': inventory
         }
-    except (Product.DoesNotExist, Inventory.DoesNotExist):
-        return None 
+    except Product.DoesNotExist:
+        return None

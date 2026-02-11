@@ -145,7 +145,21 @@
                                     <span class="fw-bold fs-5">{{ item.quantity }}</span>
                                 </td>
                                 <td>
-                                    <span class="text-muted">{{ item.warning_level }}</span>
+                                    <form method="post" action="{% url 'inventory_update_warning_level' item.id %}" class="d-flex align-items-center gap-2">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                        <input
+                                            type="number"
+                                            name="warning_level"
+                                            class="form-control form-control-sm"
+                                            value="{{ item.warning_level }}"
+                                            min="0"
+                                            step="1"
+                                            aria-label="预警库存"
+                                            style="max-width: 96px;"
+                                        >
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">保存</button>
+                                    </form>
                                 </td>
                                 <td>
                                     {% if item.quantity <= item.warning_level %}
@@ -156,13 +170,13 @@
                                 </td>
                                 <td>
                                     <div class="btn-group">
-                                        <a href="{% url 'inventory_in' %}" class="btn btn-sm btn-outline-primary" title="入库">
+                                        <a href="{% url 'inventory_in' %}?product_id={{ item.product.id }}&warehouse_id={{ item.warehouse.id }}" class="btn btn-sm btn-outline-primary" title="入库">
                                             <i class="bi bi-box-arrow-in-down"></i>
                                         </a>
-                                        <a href="#" class="btn btn-sm btn-outline-warning" title="出库">
+                                        <a href="{% url 'inventory_out' %}?product_id={{ item.product.id }}&warehouse_id={{ item.warehouse.id }}" class="btn btn-sm btn-outline-warning" title="出库">
                                             <i class="bi bi-box-arrow-up"></i>
                                         </a>
-                                        <a href="#" class="btn btn-sm btn-outline-info" title="调整">
+                                        <a href="{% url 'inventory_adjust' %}?product_id={{ item.product.id }}&warehouse_id={{ item.warehouse.id }}" class="btn btn-sm btn-outline-info" title="调整">
                                             <i class="bi bi-pencil"></i>
                                         </a>
                                     </div>

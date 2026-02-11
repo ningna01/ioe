@@ -91,7 +91,7 @@ def system_info(request):
     with connection.cursor() as cursor:
         db_stats['product_count'] = _safe_table_count(cursor, 'inventory_product')
         db_stats['category_count'] = _safe_table_count(cursor, 'inventory_category')
-        db_stats['inventory_count'] = _safe_table_count(cursor, 'inventory_inventory')
+        db_stats['inventory_count'] = _safe_table_count(cursor, 'inventory_warehouseinventory')
         db_stats['sale_count'] = _safe_table_count(cursor, 'inventory_sale')
         
         # cursor.execute("SELECT COUNT(*) FROM inventory_member")

@@ -8,7 +8,7 @@ from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQua
 from django.utils import timezone
 
 from inventory.models import (
-    Product, Inventory, WarehouseInventory,
+    Product, WarehouseInventory,
     Sale, SaleItem, InventoryTransaction, OperationLog
 )
 from inventory.utils.date_utils import get_period_boundaries
@@ -54,42 +54,41 @@ class ReportService:
 
         # Truncate function based on period
         if period == 'day':
-            trunc_func = TruncDay('created_at')
+            trunc_func = TruncDay('sale__created_at')
         elif period == 'week':
-            trunc_func = TruncWeek('created_at')
+            trunc_func = TruncWeek('sale__created_at')
         elif period == 'month':
-            trunc_func = TruncMonth('created_at')
+            trunc_func = TruncMonth('sale__created_at')
         elif period == 'quarter':
-            trunc_func = TruncQuarter('created_at')
+            trunc_func = TruncQuarter('sale__created_at')
         elif period == 'year':
-            trunc_func = TruncYear('created_at')
+            trunc_func = TruncYear('sale__created_at')
         else:
-            trunc_func = TruncDay('created_at')
+            trunc_func = TruncDay('sale__created_at')
 
-        # Query sales data
-        sales_query = Sale.objects.filter(
-            created_at__range=(start_date, end_date_upper)
+        # 基于销售明细聚合，避免多商品销售单导致金额重复计入
+        items_query = SaleItem.objects.filter(
+            sale__created_at__range=(start_date, end_date_upper)
         )
 
         if warehouse_ids is not None:
             if warehouse_ids:
-                sales_query = sales_query.filter(warehouse_id__in=warehouse_ids)
+                items_query = items_query.filter(sale__warehouse_id__in=warehouse_ids)
             else:
-                sales_query = sales_query.none()
-        
-        # Apply sale type filter if specified
+                items_query = items_query.none()
+
         if sale_type and sale_type in ['retail', 'wholesale']:
-            sales_query = sales_query.filter(items__sale_type=sale_type).distinct()
-        
-        sales_data = sales_query.annotate(
+            items_query = items_query.filter(sale_type=sale_type)
+
+        sales_data = items_query.annotate(
             period=trunc_func
         ).values(
             'period'
         ).annotate(
-            total_sales=Sum('final_amount'),
-            total_cost=Sum(F('items__quantity') * F('items__product__cost')),
-            order_count=Count('id', distinct=True),
-            item_count=Count('items')
+            total_sales=Sum('subtotal'),
+            total_cost=Sum(F('quantity') * F('product__cost')),
+            order_count=Count('sale_id', distinct=True),
+            item_count=Count('id')
         ).order_by('period')
         
         # Calculate profit（利润率 = 利润 / 销售额）
@@ -186,93 +185,29 @@ class ReportService:
 
         start_date, end_date_upper = _normalize_date_range(start_date, end_date)
 
-        # 保持历史无作用域模式逻辑不变，避免影响既有报表口径
         if warehouse_ids is None:
-            inventory_query = Inventory.objects.select_related('product').all()
-            if category:
-                inventory_query = inventory_query.filter(product__category=category)
-
-            sales_query = SaleItem.objects.filter(
-                sale__created_at__range=(start_date, end_date_upper)
+            scope_warehouse_ids = list(
+                WarehouseInventory.objects.filter(warehouse__is_active=True)
+                .values_list('warehouse_id', flat=True)
+                .distinct()
             )
-            if category:
-                sales_query = sales_query.filter(product__category=category)
-            sales_data = sales_query.values('product').annotate(
-                total_quantity=Sum('quantity')
-            )
-            sales_map = {item['product']: item['total_quantity'] for item in sales_data}
+        else:
+            scope_warehouse_ids = list(warehouse_ids)
 
-            txn_base_query = InventoryTransaction.objects.filter(
-                created_at__range=(start_date, end_date_upper),
-                warehouse__isnull=True
-            )
-            if category:
-                txn_base_query = txn_base_query.filter(product__category=category)
-
-            txn_sums = txn_base_query.exclude(
-                transaction_type='ADJUST'
-            ).values('product').annotate(
-                total_in=Sum(Case(When(transaction_type='IN', then=F('quantity')), default=Value(0))),
-                total_out=Sum(Case(When(transaction_type='OUT', then=F('quantity')), default=Value(0)))
-            )
-            txn_map = {item['product']: item for item in txn_sums}
-
-            products_with_adjust = set(
-                txn_base_query.filter(
-                    transaction_type='ADJUST'
-                ).values_list('product_id', flat=True).distinct()
-            )
-
-            product_turnover = []
-            for inv in inventory_query:
-                sold_quantity = sales_map.get(inv.product.id, 0)
-                current_quantity = inv.quantity
-                txn = txn_map.get(inv.product.id, {'total_in': 0, 'total_out': 0})
-
-                if inv.product.id in products_with_adjust:
-                    average_inventory = (current_quantity + sold_quantity) / 2
-                else:
-                    beginning = current_quantity - (txn.get('total_in') or 0) + (txn.get('total_out') or 0)
-                    if beginning < 0:
-                        average_inventory = (0 + current_quantity) / 2
-                    else:
-                        average_inventory = (beginning + current_quantity) / 2
-
-                if average_inventory > 0:
-                    turnover_rate = (sold_quantity / average_inventory) * (365 / days)
-                    turnover_days = 365 / turnover_rate if turnover_rate > 0 else 9999
-                else:
-                    turnover_rate = 0
-                    turnover_days = 9999
-
-                product_turnover.append({
-                    'product_id': inv.product.id,
-                    'product_name': inv.product.name,
-                    'product_code': inv.product.barcode,
-                    'category': inv.product.category.name if inv.product.category else '',
-                    'current_stock': current_quantity,
-                    'sold_quantity': sold_quantity,
-                    'avg_stock': average_inventory,
-                    'turnover_rate': turnover_rate,
-                    'turnover_days': turnover_days,
-                })
-
-            product_turnover.sort(key=lambda x: x['turnover_rate'], reverse=True)
-            return product_turnover
-
-        if not warehouse_ids:
+        if not scope_warehouse_ids:
             return []
 
         inventory_query = WarehouseInventory.objects.select_related('product').filter(
-            warehouse_id__in=warehouse_ids
+            warehouse_id__in=scope_warehouse_ids,
+            warehouse__is_active=True,
         )
         sales_query = SaleItem.objects.filter(
             sale__created_at__range=(start_date, end_date_upper),
-            sale__warehouse_id__in=warehouse_ids
+            sale__warehouse_id__in=scope_warehouse_ids,
         )
         txn_base_query = InventoryTransaction.objects.filter(
             created_at__range=(start_date, end_date_upper),
-            warehouse_id__in=warehouse_ids
+            warehouse_id__in=scope_warehouse_ids,
         )
 
         if category:
@@ -363,41 +298,26 @@ class ReportService:
 
         start_date, end_date_upper = _normalize_date_range(start_date, end_date)
 
-        # Sales data
-        sales_query = Sale.objects.filter(
-            created_at__range=(start_date, end_date_upper)
+        sale_items_query = SaleItem.objects.filter(
+            sale__created_at__range=(start_date, end_date_upper)
         )
 
         if warehouse_ids is not None:
             if warehouse_ids:
-                sales_query = sales_query.filter(warehouse_id__in=warehouse_ids)
+                sale_items_query = sale_items_query.filter(sale__warehouse_id__in=warehouse_ids)
             else:
-                sales_query = sales_query.none()
-        
-        # Apply sale type filter if specified
-        if sale_type and sale_type in ['retail', 'wholesale']:
-            sales_query = sales_query.filter(items__sale_type=sale_type).distinct()
-        
-        # Total sales
-        total_sales = sales_query.aggregate(
-            total_amount=Sum('total_amount'),
-            final_amount=Sum('final_amount'),
-            discount_amount=Sum('discount_amount')
-        )
-        
-        # Calculate costs
-        sale_items_query = SaleItem.objects.filter(sale__in=sales_query)
-        
-        # Apply sale type filter to items if specified
+                sale_items_query = sale_items_query.none()
+
         if sale_type and sale_type in ['retail', 'wholesale']:
             sale_items_query = sale_items_query.filter(sale_type=sale_type)
-        
-        total_cost = sale_items_query.aggregate(
+
+        total_aggregates = sale_items_query.aggregate(
+            sales=Sum('subtotal'),
             cost=Sum(F('quantity') * F('product__cost'))
-        )['cost'] or 0
-        
-        # Calculate profit
-        gross_profit = (total_sales['final_amount'] or 0) - total_cost
+        )
+        total_sales_amount = total_aggregates['sales'] or 0
+        total_cost = total_aggregates['cost'] or 0
+        gross_profit = total_sales_amount - total_cost
         
         # Calculate by category
         category_data = list(sale_items_query.values(
@@ -417,18 +337,22 @@ class ReportService:
             d['profit_margin'] = (profit_val * 100 / sales_val) if sales_val else 0
         
         # 汇总利润率 = 利润/销售额
-        total_sales_amount = total_sales['final_amount'] or 0
         profit_margin = (gross_profit / total_sales_amount) * 100 if total_sales_amount else 0
+
+        matching_sale_ids = sale_items_query.values_list('sale_id', flat=True).distinct()
+        discount_amount = Sale.objects.filter(id__in=matching_sale_ids).aggregate(
+            total=Sum('discount_amount')
+        )['total'] or 0
             
         return {
             'start_date': start_date,
             'end_date': end_date,
-            'total_sales': total_sales['final_amount'] or 0,
+            'total_sales': total_sales_amount,
             'total_cost': total_cost,
             'gross_profit': gross_profit,
             'profit_margin': profit_margin,
-            'discount_amount': total_sales['discount_amount'] or 0,
-            'order_count': sales_query.count(),
+            'discount_amount': discount_amount,
+            'order_count': sale_items_query.values('sale_id').distinct().count(),
             'item_count': sale_items_query.count(),
             'category_data': category_data
         }

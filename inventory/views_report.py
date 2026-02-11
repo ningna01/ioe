@@ -49,6 +49,28 @@ def _append_scope_context(context, scope):
     })
     return context
 
+
+def _normalize_sale_type(raw_value):
+    normalized = (raw_value or '').strip().lower()
+    if normalized in ['retail', 'wholesale']:
+        return normalized
+    return 'all'
+
+
+def _resolve_sale_type_filter(raw_value):
+    normalized = _normalize_sale_type(raw_value)
+    if normalized == 'all':
+        return normalized, None
+    return normalized, normalized
+
+
+def _resolve_profit_sale_type_filter(raw_value):
+    normalized = (raw_value or '').strip().lower()
+    if normalized in ['retail', 'wholesale']:
+        return normalized, normalized
+    # 利润报表默认按零售口径，避免零售与批发混算造成误导。
+    return 'retail', 'retail'
+
 @login_required
 @log_view_access('OTHER')
 @permission_required('view_reports')
@@ -74,13 +96,11 @@ def sales_trend_report(request):
             start_date = form.cleaned_data['start_date']
             end_date = form.cleaned_data['end_date']
             period = form.cleaned_data['period']
-            
-            # Get sale type filter from request
-            sale_type = request.POST.get('sale_type', '')
-            sale_type_filter = None
-            if sale_type and sale_type in ['retail', 'wholesale']:
-                sale_type_filter = sale_type
-            
+
+            sale_type, sale_type_filter = _resolve_sale_type_filter(
+                request.POST.get('sale_type', '')
+            )
+
             # Get sales trend data
             sales_data = ReportService.get_sales_by_period(
                 start_date=start_date,
@@ -95,7 +115,9 @@ def sales_trend_report(request):
                 'sales_data': sales_data,
                 'start_date': start_date,
                 'end_date': end_date,
-                'period': period
+                'period': period,
+                'sale_type': sale_type,
+                'sale_type_label': {'all': '全部', 'retail': '零售', 'wholesale': '批发'}[sale_type],
             }
             return render(
                 request,
@@ -108,13 +130,11 @@ def sales_trend_report(request):
         # Get default data for last 30 days
         start_date = timezone.now().date() - timedelta(days=30)
         end_date = timezone.now().date()
-        
-        # Get sale type filter from request
-        sale_type = request.GET.get('sale_type', '')
-        sale_type_filter = None
-        if sale_type and sale_type in ['retail', 'wholesale']:
-            sale_type_filter = sale_type
-        
+
+        sale_type, sale_type_filter = _resolve_sale_type_filter(
+            request.GET.get('sale_type', '')
+        )
+
         # Get sales trend data
         sales_data = ReportService.get_sales_by_period(
             start_date=start_date,
@@ -129,7 +149,9 @@ def sales_trend_report(request):
             'sales_data': sales_data,
             'start_date': start_date,
             'end_date': end_date,
-            'period': 'day'
+            'period': 'day',
+            'sale_type': sale_type,
+            'sale_type_label': {'all': '全部', 'retail': '零售', 'wholesale': '批发'}[sale_type],
         }
         return render(
             request,
@@ -168,8 +190,9 @@ def top_products_report(request):
             end_date = form.cleaned_data['end_date']
             limit = form.cleaned_data['limit']
 
-            sale_type = request.POST.get('sale_type', '')
-            sale_type_filter = sale_type if sale_type in ['retail', 'wholesale'] else None
+            sale_type, sale_type_filter = _resolve_sale_type_filter(
+                request.POST.get('sale_type', '')
+            )
 
             raw_data = ReportService.get_top_selling_products(
                 start_date=start_date,
@@ -184,7 +207,9 @@ def top_products_report(request):
                 'form': form,
                 'top_products': top_products,
                 'start_date': start_date,
-                'end_date': end_date
+                'end_date': end_date,
+                'sale_type': sale_type,
+                'sale_type_label': {'all': '全部', 'retail': '零售', 'wholesale': '批发'}[sale_type],
             }
             return render(
                 request,
@@ -197,8 +222,9 @@ def top_products_report(request):
         end_date = timezone.now().date()
         limit = 10
 
-        sale_type = request.GET.get('sale_type', '')
-        sale_type_filter = sale_type if sale_type in ['retail', 'wholesale'] else None
+        sale_type, sale_type_filter = _resolve_sale_type_filter(
+            request.GET.get('sale_type', '')
+        )
 
         raw_data = ReportService.get_top_selling_products(
             start_date=start_date,
@@ -213,7 +239,9 @@ def top_products_report(request):
             'form': form,
             'top_products': top_products,
             'start_date': start_date,
-            'end_date': end_date
+            'end_date': end_date,
+            'sale_type': sale_type,
+            'sale_type_label': {'all': '全部', 'retail': '零售', 'wholesale': '批发'}[sale_type],
         }
         return render(
             request,
@@ -299,8 +327,9 @@ def profit_report(request):
             end_date = form.cleaned_data['end_date']
             period = form.cleaned_data.get('period', 'day')
 
-            sale_type = request.POST.get('sale_type', '')
-            sale_type_filter = sale_type if sale_type in ['retail', 'wholesale'] else None
+            sale_type, sale_type_filter = _resolve_profit_sale_type_filter(
+                request.POST.get('sale_type', '')
+            )
 
             sales_by_period = ReportService.get_sales_by_period(
                 start_date=start_date,
@@ -341,6 +370,8 @@ def profit_report(request):
                 'start_date': start_date,
                 'end_date': end_date,
                 'period': period,
+                'sale_type': sale_type,
+                'sale_type_label': {'retail': '零售', 'wholesale': '批发'}[sale_type],
             }
             return render(
                 request,
@@ -353,8 +384,9 @@ def profit_report(request):
         end_date = timezone.now().date()
         period = 'day'
 
-        sale_type = request.GET.get('sale_type', '')
-        sale_type_filter = sale_type if sale_type in ['retail', 'wholesale'] else None
+        sale_type, sale_type_filter = _resolve_profit_sale_type_filter(
+            request.GET.get('sale_type', '')
+        )
 
         sales_by_period = ReportService.get_sales_by_period(
             start_date=start_date,
@@ -395,6 +427,8 @@ def profit_report(request):
             'start_date': start_date,
             'end_date': end_date,
             'period': period,
+            'sale_type': sale_type,
+            'sale_type_label': {'retail': '零售', 'wholesale': '批发'}[sale_type],
         }
         return render(
             request,

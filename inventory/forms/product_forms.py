@@ -5,6 +5,17 @@ from inventory.models import Product, Category, ProductImage, ProductBatch, Supp
 
 
 class ProductForm(forms.ModelForm):
+    _COLOR_SUGGESTIONS = [
+        choice_value
+        for choice_value, _ in Product.COLOR_CHOICES
+        if choice_value and choice_value != 'other'
+    ]
+    _SIZE_SUGGESTIONS = [
+        choice_value
+        for choice_value, _ in Product.SIZE_CHOICES
+        if choice_value and choice_value != 'other'
+    ]
+
     barcode = forms.CharField(
         max_length=100,
         label='商品条码',
@@ -17,6 +28,32 @@ class ProductForm(forms.ModelForm):
             'pattern': '[A-Za-z0-9-]+',  # HTML5验证模式，修复转义序列
             'aria-label': '商品条码'
         })
+    )
+
+    size = forms.CharField(
+        required=False,
+        max_length=Product._meta.get_field('size').max_length,
+        label='尺码',
+        help_text='支持自定义输入，如 160L',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': '例如: M / 42 / 160L',
+            'aria-label': '尺码',
+            'list': 'size-suggestions',
+        }),
+    )
+
+    color = forms.CharField(
+        required=False,
+        max_length=Product._meta.get_field('color').max_length,
+        label='颜色',
+        help_text='支持自定义输入，如 深灰',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': '例如: 黑色 / 深灰 / 原木色',
+            'aria-label': '颜色',
+            'list': 'color-suggestions',
+        }),
     )
     
     # 添加库存预警级别字段
@@ -61,8 +98,6 @@ class ProductForm(forms.ModelForm):
             'specification': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '规格', 'aria-label': '规格'}),
             'manufacturer': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '制造商', 'aria-label': '制造商'}),
             'category': forms.Select(attrs={'class': 'form-control form-select', 'aria-label': '商品分类'}),
-            'color': forms.Select(attrs={'class': 'form-control form-select', 'aria-label': '颜色'}),
-            'size': forms.Select(attrs={'class': 'form-control form-select', 'aria-label': '尺码'}),
             'image': forms.FileInput(attrs={'class': 'form-control', 'accept': 'image/*', 'aria-label': '商品图片'}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input', 'aria-label': '是否启用'}),
         }
@@ -140,6 +175,14 @@ class ProductForm(forms.ModelForm):
         if wholesale_price is not None and wholesale_price < 0:
             raise forms.ValidationError('批发价不能为负数')
         return wholesale_price
+
+    def clean_size(self):
+        size = (self.cleaned_data.get('size') or '').strip()
+        return size
+
+    def clean_color(self):
+        color = (self.cleaned_data.get('color') or '').strip()
+        return color
         
     def clean(self):
         cleaned_data = super().clean()
@@ -158,6 +201,8 @@ class ProductForm(forms.ModelForm):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.color_suggestions = self._COLOR_SUGGESTIONS
+        self.size_suggestions = self._SIZE_SUGGESTIONS
         # 如果是编辑模式（有instance且已保存），隐藏初始数量字段
         if self.instance and self.instance.pk:
             if 'initial_quantity' in self.fields:

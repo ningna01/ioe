@@ -2,6 +2,7 @@
 Template context processors for permission-aware navigation rendering.
 """
 from inventory.models import UserWarehouseAccess
+from inventory.services.user_mode_service import is_sales_focus_user
 
 
 def _aggregate_active_permission_bits(user):
@@ -27,6 +28,7 @@ def navigation_permissions(request):
         'show_sales': False,
         'show_reports': False,
         'show_warehouse': False,
+        'sales_focus_mode': False,
     }
 
     user = getattr(request, 'user', None)
@@ -35,7 +37,8 @@ def navigation_permissions(request):
 
     if user.is_superuser:
         for key in nav_permissions:
-            nav_permissions[key] = True
+            if key != 'sales_focus_mode':
+                nav_permissions[key] = True
         return {'nav_permissions': nav_permissions}
 
     aggregated_bits = _aggregate_active_permission_bits(user)
@@ -51,5 +54,6 @@ def navigation_permissions(request):
         has_bit(UserWarehouseAccess.PERMISSION_REPORT_VIEW)
         and user.has_perm('inventory.view_reports')
     )
+    nav_permissions['sales_focus_mode'] = is_sales_focus_user(user)
 
     return {'nav_permissions': nav_permissions}

@@ -19,6 +19,17 @@ def _ensure_product_manage_access(user):
         error_message='您无权访问条码建档模块',
     )
 
+
+def _get_preferred_product_warehouse(user):
+    manageable_warehouses = WarehouseScopeService.get_accessible_warehouses(
+        user,
+        required_permission=inventory.models.UserWarehouseAccess.PERMISSION_PRODUCT_MANAGE,
+    )
+    preferred_default = WarehouseScopeService.get_default_warehouse(user)
+    if preferred_default and manageable_warehouses.filter(id=preferred_default.id).exists():
+        return preferred_default
+    return manageable_warehouses.first()
+
 @login_required
 def barcode_product_create(request):
     """
@@ -88,18 +99,38 @@ def barcode_product_create(request):
             except ValueError:
                 initial_stock = 0
                 
-            # 确保库存档案存在；数量变更统一走库存服务入口
-            inventory.models.Inventory.objects.get_or_create(product=product)
-            if initial_stock > 0:
-                success, _, stock_result = inventory.models.update_inventory(
+            warning_level = form.cleaned_data.get('warning_level')
+            if warning_level is None:
+                warning_level = 10
+
+            target_warehouse = _get_preferred_product_warehouse(request.user)
+            if target_warehouse is not None:
+                warehouse_inventory, _ = inventory.models.WarehouseInventory.objects.get_or_create(
                     product=product,
-                    quantity=initial_stock,
-                    transaction_type='IN',
-                    operator=request.user,
-                    notes='条码建档时设置初始库存'
+                    warehouse=target_warehouse,
+                    defaults={'warning_level': warning_level}
                 )
-                if not success:
-                    messages.warning(request, f'商品已创建，但初始库存写入失败: {stock_result}')
+                if warehouse_inventory.warning_level != warning_level:
+                    warehouse_inventory.warning_level = warning_level
+                    warehouse_inventory.save(update_fields=['warning_level'])
+
+            stock_update_error = None
+            if initial_stock > 0:
+                if target_warehouse is None:
+                    stock_update_error = '未找到可用仓库，无法自动写入初始库存。请先配置仓库并执行入库。'
+                else:
+                    success, _, stock_result = inventory.models.update_inventory(
+                        product=product,
+                        warehouse=target_warehouse,
+                        quantity=initial_stock,
+                        transaction_type='IN',
+                        operator=request.user,
+                        notes=f'条码建档时设置初始库存 | source=barcode_product_create | warehouse_id={target_warehouse.id}'
+                    )
+                    if not success:
+                        stock_update_error = stock_result
+            if stock_update_error:
+                messages.warning(request, f'商品已创建，但初始库存写入失败: {stock_update_error}')
             
             # 记录操作日志
             OperationLog.objects.create(
@@ -110,7 +141,10 @@ def barcode_product_create(request):
                 related_content_type=ContentType.objects.get_for_model(product)
             )
             
-            messages.success(request, '商品添加成功')
+            if initial_stock > 0 and target_warehouse is not None and not stock_update_error:
+                messages.success(request, f'商品添加成功，初始库存已在仓库 {target_warehouse.name} 设置为 {initial_stock}')
+            else:
+                messages.success(request, '商品添加成功')
             return redirect('product_list')
     else:
         form = forms.ProductForm(initial=initial_data)

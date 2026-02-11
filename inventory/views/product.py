@@ -18,7 +18,8 @@ from datetime import datetime
 
 from inventory.models import (
     Product, Category, ProductImage, ProductBatch,
-    Inventory, InventoryTransaction, Supplier, OperationLog, UserWarehouseAccess, update_inventory
+    InventoryTransaction, WarehouseInventory,
+    Supplier, OperationLog, UserWarehouseAccess, update_inventory
 )
 from inventory.forms import (
     ProductForm, CategoryForm, ProductBatchForm,
@@ -37,17 +38,31 @@ def _ensure_product_manage_access(user):
     )
 
 
+def _get_preferred_product_warehouse(user):
+    """选择商品建档时用于落库存的目标仓库。"""
+    manageable_warehouses = WarehouseScopeService.get_accessible_warehouses(
+        user,
+        required_permission=UserWarehouseAccess.PERMISSION_PRODUCT_MANAGE,
+    )
+    preferred_default = WarehouseScopeService.get_default_warehouse(user)
+    if preferred_default and manageable_warehouses.filter(id=preferred_default.id).exists():
+        return preferred_default
+    return manageable_warehouses.first()
+
+
+def _get_product_total_stock(product):
+    stock_total = WarehouseInventory.objects.filter(product=product).aggregate(
+        total=Sum('quantity')
+    )['total']
+    return int(stock_total or 0)
+
+
 def product_by_barcode(request, barcode):
     """根据条码查询商品信息的API"""
     try:
         # 先尝试精确匹配条码
         product = Product.objects.get(barcode=barcode)
-        # 获取库存信息
-        try:
-            inventory_obj = Inventory.objects.get(product=product)
-            stock = inventory_obj.quantity
-        except Inventory.DoesNotExist:
-            stock = 0
+        stock = _get_product_total_stock(product)
             
         return JsonResponse({
             'success': True,
@@ -69,11 +84,7 @@ def product_by_barcode(request, barcode):
                 # 返回匹配的多个商品
                 product_list = []
                 for product in products:
-                    try:
-                        inventory_obj = Inventory.objects.get(product=product)
-                        stock = inventory_obj.quantity
-                    except Inventory.DoesNotExist:
-                        stock = 0
+                    stock = _get_product_total_stock(product)
                         
                     product_list.append({
                         'product_id': product.id,
@@ -178,11 +189,12 @@ def product_detail(request, pk):
     _ensure_product_manage_access(request.user)
     product = get_object_or_404(Product, pk=pk)
     
-    # 获取商品库存信息
-    try:
-        inventory = Inventory.objects.get(product=product)
-    except Inventory.DoesNotExist:
-        inventory = None
+    # 获取商品库存信息（仓库库存聚合）
+    inventory_qs = WarehouseInventory.objects.filter(product=product)
+    inventory = {
+        'quantity': _get_product_total_stock(product),
+        'warning_level': (inventory_qs.order_by('warehouse_id').first().warning_level if inventory_qs.exists() else 10),
+    }
     
     # 获取商品批次信息
     batches = ProductBatch.objects.filter(product=product).order_by('-created_at')
@@ -210,7 +222,7 @@ def product_create(request):
     """创建商品视图"""
     _ensure_product_manage_access(request.user)
     if request.method == 'POST':
-        form = ProductForm(request.POST)
+        form = ProductForm(request.POST, request.FILES)
         image_formset = ProductImageFormSet(request.POST, request.FILES, prefix='images')
         
         # 修改验证逻辑，只检查表单是否有效，不强制检查图片表单集
@@ -255,48 +267,63 @@ def product_create(request):
             if initial_quantity < 0:
                 initial_quantity = 0
                 
-            inventory, _ = Inventory.objects.get_or_create(
-                product=product,
-                defaults={'warning_level': warning_level}
-            )
-            if inventory.warning_level != warning_level:
-                inventory.warning_level = warning_level
-                inventory.save(update_fields=['warning_level'])
+            target_warehouse = _get_preferred_product_warehouse(request.user)
+            warehouse_inventory = None
+            if target_warehouse is not None:
+                warehouse_inventory, _ = WarehouseInventory.objects.get_or_create(
+                    product=product,
+                    warehouse=target_warehouse,
+                    defaults={'warning_level': warning_level}
+                )
+                if warehouse_inventory.warning_level != warning_level:
+                    warehouse_inventory.warning_level = warning_level
+                    warehouse_inventory.save(update_fields=['warning_level'])
 
             stock_update_error = None
             if initial_quantity > 0:
-                stock_notes = (
-                    f"source=product_create | intent=initial_stock_setup | "
-                    f"product_id={product.id} | quantity={initial_quantity} | warning_level={warning_level}"
-                )
-                success, inventory_obj, stock_result = update_inventory(
-                    product=product,
-                    quantity=initial_quantity,
-                    transaction_type='IN',
-                    operator=request.user,
-                    notes=stock_notes
-                )
-                if success:
-                    inventory = inventory_obj
-                    transaction_obj = stock_result
-                    OperationLog.objects.create(
-                        operator=request.user,
-                        operation_type='INVENTORY',
-                        details=(
-                            f"商品初始库存写入: 商品={product.name}; 请求数量={initial_quantity}; "
-                            f"变更=+{initial_quantity}; 当前库存={inventory.quantity}; "
-                            f"交易ID={transaction_obj.id}; 来源=product_create"
-                        ),
-                        related_object_id=transaction_obj.id,
-                        related_content_type=ContentType.objects.get_for_model(InventoryTransaction)
-                    )
+                if target_warehouse is None:
+                    stock_update_error = '未找到可用仓库，无法自动写入初始库存。请先配置仓库并执行入库。'
                 else:
-                    stock_update_error = stock_result
+                    stock_notes = (
+                        f"source=product_create | intent=initial_stock_setup | "
+                        f"product_id={product.id} | warehouse_id={target_warehouse.id} | "
+                        f"quantity={initial_quantity} | warning_level={warning_level}"
+                    )
+                    success, inventory_obj, stock_result = update_inventory(
+                        product=product,
+                        warehouse=target_warehouse,
+                        quantity=initial_quantity,
+                        transaction_type='IN',
+                        operator=request.user,
+                        notes=stock_notes
+                    )
+                    if success:
+                        warehouse_inventory = inventory_obj
+                        transaction_obj = stock_result
+                        OperationLog.objects.create(
+                            operator=request.user,
+                            operation_type='INVENTORY',
+                            details=(
+                                f"商品初始库存写入: 商品={product.name}; 仓库={target_warehouse.name}; "
+                                f"请求数量={initial_quantity}; 变更=+{initial_quantity}; 当前库存={warehouse_inventory.quantity}; "
+                                f"交易ID={transaction_obj.id}; 来源=product_create"
+                            ),
+                            related_object_id=transaction_obj.id,
+                            related_content_type=ContentType.objects.get_for_model(InventoryTransaction)
+                        )
+                    else:
+                        stock_update_error = stock_result
 
             if stock_update_error:
                 messages.error(request, f'商品 {product.name} 创建成功，但初始库存写入失败: {stock_update_error}')
             elif initial_quantity > 0:
-                messages.success(request, f'商品 {product.name} 创建成功，初始库存已设置为 {initial_quantity}')
+                if target_warehouse is not None:
+                    messages.success(
+                        request,
+                        f'商品 {product.name} 创建成功，初始库存已在仓库 {target_warehouse.name} 设置为 {initial_quantity}'
+                    )
+                else:
+                    messages.success(request, f'商品 {product.name} 创建成功')
             else:
                 messages.success(request, f'商品 {product.name} 创建成功')
             
@@ -336,7 +363,7 @@ def product_update(request, pk):
     product = get_object_or_404(Product, pk=pk)
     
     if request.method == 'POST':
-        form = ProductForm(request.POST, instance=product)
+        form = ProductForm(request.POST, request.FILES, instance=product)
         image_formset = ProductImageFormSet(request.POST, request.FILES, prefix='images', instance=product)
         
         # 修改验证逻辑，只检查表单是否有效，不强制检查图片表单集
@@ -380,13 +407,17 @@ def product_update(request, pk):
             if 'warning_level' in form.cleaned_data and form.cleaned_data['warning_level'] is not None:
                 warning_level = form.cleaned_data['warning_level']
                 
-            inventory, _ = Inventory.objects.get_or_create(
-                product=product,
-                defaults={'warning_level': warning_level}
-            )
-            if inventory.warning_level != warning_level:
-                inventory.warning_level = warning_level
-                inventory.save(update_fields=['warning_level'])
+            warehouse_inventory_qs = WarehouseInventory.objects.filter(product=product)
+            if warehouse_inventory_qs.exists():
+                warehouse_inventory_qs.exclude(warning_level=warning_level).update(warning_level=warning_level)
+            else:
+                target_warehouse = _get_preferred_product_warehouse(request.user)
+                if target_warehouse is not None:
+                    WarehouseInventory.objects.get_or_create(
+                        product=product,
+                        warehouse=target_warehouse,
+                        defaults={'warning_level': warning_level, 'quantity': 0}
+                    )
             
             messages.success(request, f'商品 {product.name} 更新成功')
             # 修改重定向，解决模板不存在的问题
@@ -394,11 +425,9 @@ def product_update(request, pk):
     else:
         form = ProductForm(instance=product)
         # 设置库存预警级别
-        try:
-            inventory = Inventory.objects.get(product=product)
-            form.fields['warning_level'].initial = inventory.warning_level
-        except Inventory.DoesNotExist:
-            pass
+        warehouse_inventory = WarehouseInventory.objects.filter(product=product).order_by('warehouse_id').first()
+        if warehouse_inventory:
+            form.fields['warning_level'].initial = warehouse_inventory.warning_level
         
         image_formset = ProductImageFormSet(prefix='images', instance=product)
     
@@ -657,11 +686,14 @@ def product_bulk_create(request):
                     is_active=True
                 )
                 
-                # 创建库存记录（数量写入统一走库存服务，此处仅确保库存档案存在）
-                Inventory.objects.get_or_create(
-                    product=product,
-                    defaults={'warning_level': 5}
-                )
+                # 创建库存记录（数量写入统一走库存服务，此处仅确保仓库库存档案存在）
+                target_warehouse = _get_preferred_product_warehouse(request.user)
+                if target_warehouse is not None:
+                    WarehouseInventory.objects.get_or_create(
+                        product=product,
+                        warehouse=target_warehouse,
+                        defaults={'warning_level': 5, 'quantity': 0}
+                    )
                 
                 created_count += 1
             

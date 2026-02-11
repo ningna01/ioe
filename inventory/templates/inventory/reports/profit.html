@@ -17,6 +17,8 @@
                 ({{ period|default:"按日" }})
             </p>
             <p class="text-muted">仓库范围: {{ warehouse_scope_label }}</p>
+            <p class="text-muted mb-0">销售口径: {{ sale_type_label }}</p>
+            <p class="text-muted mb-0">说明: 利润与毛利率按零售/批发单独统计，不做混算。</p>
         </div>
         <div class="col-md-4 text-md-end">
             <a href="{% url 'reports_index' %}" class="btn btn-outline-secondary">
@@ -36,14 +38,21 @@
                     <form method="post">
                         {% csrf_token %}
                         <div class="row">
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 {{ form.start_date|as_crispy_field }}
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 {{ form.end_date|as_crispy_field }}
                             </div>
                             <div class="col-md-2">
                                 {{ form.period|as_crispy_field }}
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">销售方式</label>
+                                <select name="sale_type" class="form-select">
+                                    <option value="retail" {% if sale_type == 'retail' %}selected{% endif %}>零售</option>
+                                    <option value="wholesale" {% if sale_type == 'wholesale' %}selected{% endif %}>批发</option>
+                                </select>
                             </div>
                             <div class="col-md-2">
                                 <label class="form-label">仓库</label>
@@ -68,25 +77,25 @@
     <div class="row mb-4">
         <div class="col-md-3">
             <div class="report-kpi">
-                <p class="report-kpi__label">总销售额</p>
+                <p class="report-kpi__label">{{ sale_type_label }}销售额</p>
                 <h3 class="report-kpi__value">¥{{ summary.total_sales|floatformat:2 }}</h3>
                 </div>
         </div>
         <div class="col-md-3">
             <div class="report-kpi">
-                <p class="report-kpi__label">总成本</p>
+                <p class="report-kpi__label">{{ sale_type_label }}成本</p>
                 <h3 class="report-kpi__value">¥{{ summary.total_cost|floatformat:2 }}</h3>
                 </div>
         </div>
         <div class="col-md-3">
             <div class="report-kpi">
-                <p class="report-kpi__label">总利润</p>
+                <p class="report-kpi__label">{{ sale_type_label }}利润</p>
                 <h3 class="report-kpi__value">¥{{ summary.total_profit|floatformat:2 }}</h3>
                 </div>
         </div>
         <div class="col-md-3">
             <div class="report-kpi">
-                <p class="report-kpi__label">平均毛利率</p>
+                <p class="report-kpi__label">{{ sale_type_label }}毛利率</p>
                 <h3 class="report-kpi__value">{{ summary.avg_profit_margin|floatformat:2 }}%</h3>
                 </div>
         </div>
@@ -100,6 +109,12 @@
                     <h3 class="h5 mb-0">利润趋势图表</h3>
                 </div>
                 <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2 mb-3" id="profitChartControls">
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-dataset-index="0">销售额</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-dataset-index="1">成本</button>
+                        <button type="button" class="btn btn-sm btn-outline-success active" data-dataset-index="2">利润</button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-dataset-index="3">毛利率</button>
+                    </div>
                     <div class="chart-container">
                         <canvas id="profitChart"></canvas>
                     </div>
@@ -191,7 +206,7 @@
         ];
         
         // 创建图表
-        ReportCharts.create('profitChart', {
+        const profitChart = ReportCharts.create('profitChart', {
             type: 'bar',
             data: {
                 labels: labels,
@@ -204,7 +219,8 @@
                         borderWidth: 1,
                         borderRadius: 4,
                         yAxisID: 'y',
-                        order: 3
+                        order: 3,
+                        hidden: true
                     },
                     {
                         label: '成本',
@@ -214,7 +230,8 @@
                         borderWidth: 1,
                         borderRadius: 4,
                         yAxisID: 'y',
-                        order: 2
+                        order: 2,
+                        hidden: true
                     },
                     {
                         label: '利润',
@@ -238,7 +255,8 @@
                         pointRadius: 4,
                         pointBackgroundColor: ReportCharts.palette.red,
                         yAxisID: 'y1',
-                        order: 0
+                        order: 0,
+                        hidden: true
                     }
                 ]
             },
@@ -271,6 +289,7 @@
                 }
             }
         });
+        ReportCharts.bindDatasetToggle(profitChart, '#profitChartControls');
     });
 </script>
 {% endif %}

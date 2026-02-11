@@ -5,7 +5,7 @@ from .product import Product, Category, Color, Size, Store, ProductImage, Produc
 
 # 库存相关模型
 from .inventory import (
-    Inventory, InventoryTransaction, 
+    InventoryTransaction,
     check_inventory, update_inventory, StockAlert
 )
 
@@ -30,7 +30,7 @@ __all__ = [
     'Product', 'Category', 'Color', 'Size', 'Store', 'ProductImage', 'ProductBatch', 'Supplier',
     
     # 库存模型
-    'Inventory', 'InventoryTransaction', 'check_inventory', 
+    'InventoryTransaction', 'check_inventory',
     'update_inventory', 'StockAlert',
     
     # 仓库模型

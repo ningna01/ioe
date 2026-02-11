@@ -22,6 +22,8 @@ IOE_STATIC_DIR = os.environ.get('IOE_STATIC_DIR')
 IOE_BACKUP_ROOT = os.environ.get('IOE_BACKUP_ROOT')
 IOE_TEMP_DIR = os.environ.get('IOE_TEMP_DIR')
 
+VERSION = os.environ.get('IOE_APP_VERSION', '1.0.1')
+
 SECRET_KEY = os.environ.get('SECRET_KEY', 'p5k!d@$v_z@6i*+j$9x7b!n=o(h&w#q)s@l^m*g3r+t(u-v_y')
 
 # SECURITY WARNING: don't run with debug turned on in production!

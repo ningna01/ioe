@@ -13,8 +13,7 @@ from django.contrib.contenttypes.models import ContentType
 
 # 使用重构后的模型导入
 from inventory.models import (
-    InventoryCheck, InventoryCheckItem, Product, 
-    Inventory, OperationLog
+    InventoryCheck, InventoryCheckItem, Product, OperationLog
 )
 from inventory.forms import InventoryCheckForm, InventoryCheckItemForm, InventoryCheckApproveForm
 from inventory.services.inventory_check_service import InventoryCheckService

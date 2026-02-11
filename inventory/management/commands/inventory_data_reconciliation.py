@@ -1,16 +1,15 @@
 """
-Inventory data reconciliation command.
-Builds a warehouse/global inventory consistency report for Step8 governance.
+Warehouse inventory integrity reconciliation command.
+Builds a consistency report for the WarehouseInventory-only model.
 """
 import json
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Count, Sum
+from django.db.models import Count
 from django.utils import timezone
 
 from inventory.models import (
-    Inventory,
     InventoryCheck,
     InventoryTransaction,
     Product,
@@ -20,106 +19,53 @@ from inventory.models import (
 
 
 def build_inventory_reconciliation_report(sample_size=20):
-    """Build reconciliation report between Inventory and WarehouseInventory."""
-    global_rows = list(
-        Inventory.objects.values(
-            'product_id',
-            'quantity',
-            'warning_level',
-        )
-    )
-    warehouse_rows = list(
-        WarehouseInventory.objects.values('product_id').annotate(
-            total_quantity=Sum('quantity'),
-            warehouse_count=Count('id'),
-        )
-    )
-    warehouse_detail_rows = list(
+    """Build integrity report under WarehouseInventory-only stock model."""
+    duplicate_profiles = list(
         WarehouseInventory.objects.values(
             'product_id',
+            'product__name',
+            'warehouse_id',
+            'warehouse__name',
+        ).annotate(row_count=Count('id')).filter(row_count__gt=1)
+    )
+
+    negative_quantity_rows = list(
+        WarehouseInventory.objects.filter(quantity__lt=0).values(
+            'id',
+            'product_id',
+            'product__name',
             'warehouse_id',
             'warehouse__name',
             'quantity',
-        )
+            'warning_level',
+        ).order_by('quantity')
     )
 
-    global_map = {
-        row['product_id']: {
-            'global_quantity': int(row['quantity'] or 0),
-            'warning_level': int(row['warning_level'] or 0),
-        }
-        for row in global_rows
-    }
-    warehouse_map = {
-        row['product_id']: {
-            'warehouse_total_quantity': int(row['total_quantity'] or 0),
-            'warehouse_count': int(row['warehouse_count'] or 0),
-        }
-        for row in warehouse_rows
-    }
-    warehouse_details_map = {}
-    for row in warehouse_detail_rows:
-        warehouse_details_map.setdefault(row['product_id'], []).append({
-            'warehouse_id': row['warehouse_id'],
-            'warehouse_name': row['warehouse__name'],
-            'quantity': int(row['quantity'] or 0),
-        })
+    negative_warning_level_rows = list(
+        WarehouseInventory.objects.filter(warning_level__lt=0).values(
+            'id',
+            'product_id',
+            'product__name',
+            'warehouse_id',
+            'warehouse__name',
+            'quantity',
+            'warning_level',
+        ).order_by('warning_level')
+    )
 
-    product_ids = sorted(set(global_map) | set(warehouse_map))
-    product_names = {
-        row['id']: row['name']
-        for row in Product.objects.filter(id__in=product_ids).values('id', 'name')
-    }
+    warning_level_conflicts = list(
+        WarehouseInventory.objects.values('product_id', 'product__name').annotate(
+            distinct_warning_levels=Count('warning_level', distinct=True)
+        ).filter(distinct_warning_levels__gt=1)
+    )
 
-    matched_count = 0
-    mismatched_products = []
-    missing_global_inventory_products = []
-    missing_warehouse_inventory_products = []
-
-    for product_id in product_ids:
-        product_name = product_names.get(product_id, f'#{product_id}')
-        global_data = global_map.get(product_id)
-        warehouse_data = warehouse_map.get(product_id)
-
-        if global_data and warehouse_data:
-            difference = warehouse_data['warehouse_total_quantity'] - global_data['global_quantity']
-            if difference == 0:
-                matched_count += 1
-                continue
-
-            mismatched_products.append({
-                'product_id': product_id,
-                'product_name': product_name,
-                'global_quantity': global_data['global_quantity'],
-                'warehouse_total_quantity': warehouse_data['warehouse_total_quantity'],
-                'difference': difference,
-                'warehouse_breakdown': warehouse_details_map.get(product_id, []),
-                'suggested_action': 'manual_reconcile_quantity',
-            })
-            continue
-
-        if warehouse_data and not global_data:
-            missing_global_inventory_products.append({
-                'product_id': product_id,
-                'product_name': product_name,
-                'global_quantity': None,
-                'warehouse_total_quantity': warehouse_data['warehouse_total_quantity'],
-                'difference': warehouse_data['warehouse_total_quantity'],
-                'warehouse_breakdown': warehouse_details_map.get(product_id, []),
-                'suggested_action': 'auto_create_global_inventory_profile',
-            })
-            continue
-
-        if global_data and not warehouse_data:
-            missing_warehouse_inventory_products.append({
-                'product_id': product_id,
-                'product_name': product_name,
-                'global_quantity': global_data['global_quantity'],
-                'warehouse_total_quantity': 0,
-                'difference': -global_data['global_quantity'],
-                'warehouse_breakdown': [],
-                'suggested_action': 'manual_backfill_warehouse_inventory',
-            })
+    products_without_warehouse_inventory = list(
+        Product.objects.filter(is_active=True, warehouse_inventories__isnull=True).values(
+            'id',
+            'name',
+            'barcode',
+        )
+    )
 
     sale_without_warehouse_count = Sale.objects.filter(warehouse__isnull=True).count()
     inventory_check_without_warehouse_count = InventoryCheck.objects.filter(warehouse__isnull=True).count()
@@ -129,22 +75,26 @@ def build_inventory_reconciliation_report(sample_size=20):
         'generated_at': timezone.now().isoformat(),
         'sample_size': sample_size,
         'summary': {
-            'product_scope_count': len(product_ids),
-            'matched_count': matched_count,
-            'mismatched_count': len(mismatched_products),
-            'missing_global_inventory_count': len(missing_global_inventory_products),
-            'missing_warehouse_inventory_count': len(missing_warehouse_inventory_products),
+            'product_scope_count': Product.objects.filter(is_active=True).count(),
+            'warehouse_inventory_row_count': WarehouseInventory.objects.count(),
+            'duplicate_profile_count': len(duplicate_profiles),
+            'negative_quantity_count': len(negative_quantity_rows),
+            'negative_warning_level_count': len(negative_warning_level_rows),
+            'warning_level_conflict_count': len(warning_level_conflicts),
+            'products_without_warehouse_inventory_count': len(products_without_warehouse_inventory),
             'sale_without_warehouse_count': sale_without_warehouse_count,
             'inventory_check_without_warehouse_count': inventory_check_without_warehouse_count,
             'transaction_without_warehouse_count': transaction_without_warehouse_count,
         },
         'classification': {
-            'auto_fix_candidates': {
-                'missing_global_inventory_profiles': len(missing_global_inventory_products),
-            },
             'manual_review_required': {
-                'quantity_mismatches': len(mismatched_products),
-                'missing_warehouse_inventory': len(missing_warehouse_inventory_products),
+                'duplicate_profiles': len(duplicate_profiles),
+                'negative_quantities': len(negative_quantity_rows),
+                'negative_warning_levels': len(negative_warning_level_rows),
+                'products_without_warehouse_inventory': len(products_without_warehouse_inventory),
+            },
+            'warning_only': {
+                'warning_level_conflicts': len(warning_level_conflicts),
             },
             'legacy_scope_gaps': {
                 'sale_without_warehouse': sale_without_warehouse_count,
@@ -153,23 +103,25 @@ def build_inventory_reconciliation_report(sample_size=20):
             },
         },
         'samples': {
-            'mismatched_products': mismatched_products[:sample_size],
-            'missing_global_inventory_products': missing_global_inventory_products[:sample_size],
-            'missing_warehouse_inventory_products': missing_warehouse_inventory_products[:sample_size],
+            'duplicate_profiles': duplicate_profiles[:sample_size],
+            'negative_quantity_rows': negative_quantity_rows[:sample_size],
+            'negative_warning_level_rows': negative_warning_level_rows[:sample_size],
+            'warning_level_conflicts': warning_level_conflicts[:sample_size],
+            'products_without_warehouse_inventory': products_without_warehouse_inventory[:sample_size],
         },
     }
     return report
 
 
 class Command(BaseCommand):
-    help = 'Generate inventory reconciliation report for warehouse/global inventory consistency.'
+    help = 'Generate warehouse-inventory integrity report for release gate checks.'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--sample-size',
             type=int,
             default=20,
-            help='Number of sample rows in each mismatch category (default: 20).',
+            help='Number of sample rows in each category (default: 20).',
         )
         parser.add_argument(
             '--output',
@@ -189,18 +141,24 @@ class Command(BaseCommand):
         summary = report['summary']
         manual_review = report['classification']['manual_review_required']
         critical_count = (
-            int(manual_review['quantity_mismatches'])
-            + int(manual_review['missing_warehouse_inventory'])
+            int(manual_review['duplicate_profiles'])
+            + int(manual_review['negative_quantities'])
+            + int(manual_review['negative_warning_levels'])
+            + int(manual_review['products_without_warehouse_inventory'])
         )
 
-        self.stdout.write(self.style.SUCCESS('Inventory reconciliation report generated.'))
-        self.stdout.write(f"Products in scope: {summary['product_scope_count']}")
-        self.stdout.write(f"Matched: {summary['matched_count']}")
-        self.stdout.write(f"Mismatched: {summary['mismatched_count']}")
-        self.stdout.write(f"Missing global inventory: {summary['missing_global_inventory_count']}")
-        self.stdout.write(f"Missing warehouse inventory: {summary['missing_warehouse_inventory_count']}")
+        self.stdout.write(self.style.SUCCESS('Warehouse inventory reconciliation report generated.'))
+        self.stdout.write(f"Active products in scope: {summary['product_scope_count']}")
+        self.stdout.write(f"Warehouse inventory rows: {summary['warehouse_inventory_row_count']}")
+        self.stdout.write(f"Duplicate profiles: {summary['duplicate_profile_count']}")
+        self.stdout.write(f"Negative quantities: {summary['negative_quantity_count']}")
+        self.stdout.write(f"Negative warning levels: {summary['negative_warning_level_count']}")
+        self.stdout.write(f"Warning-level conflicts: {summary['warning_level_conflict_count']}")
         self.stdout.write(
-            "Legacy scope gaps: "
+            f"Products without warehouse inventory: {summary['products_without_warehouse_inventory_count']}"
+        )
+        self.stdout.write(
+            'Legacy scope gaps: '
             f"sale_without_warehouse={summary['sale_without_warehouse_count']}, "
             f"inventory_check_without_warehouse={summary['inventory_check_without_warehouse_count']}, "
             f"transaction_without_warehouse={summary['transaction_without_warehouse_count']}"

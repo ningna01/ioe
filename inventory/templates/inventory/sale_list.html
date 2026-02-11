@@ -28,44 +28,68 @@
         <div class="card">
             <div class="card-body">
                 <form method="get" id="filterForm">
-                    <div class="row mb-3">
-                        <div class="col-lg-8 mb-3 mb-lg-0">
-                            <div class="d-flex flex-column flex-md-row gap-2">
-                                <div class="input-group">
-                                    <span class="input-group-text bg-primary text-white"><i class="bi bi-search"></i></span>
-                                    <input type="text" class="form-control border-primary" id="searchInput" name="q" value="{{ search_query }}" placeholder="搜索订单编号或客户...">
-                                    <button class="btn btn-outline-primary d-none d-md-inline-block" type="button" id="clearSearch" title="清除搜索"><i class="bi bi-x-lg"></i></button>
-                                </div>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
-                                    <input type="date" class="form-control border-primary" id="dateFilter" name="date_from" value="{{ date_from }}" placeholder="开始日期">
-                                </div>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
-                                    <input type="date" class="form-control border-primary" id="dateToFilter" name="date_to" value="{{ date_to }}" placeholder="结束日期">
-                                </div>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-primary text-white"><i class="bi bi-tag"></i></span>
-                                    <select class="form-select border-primary" id="saleTypeFilter" name="sale_type">
-                                        <option value="">全部</option>
-                                        <option value="retail" {% if sale_type == 'retail' %}selected{% endif %}>零售</option>
-                                        <option value="wholesale" {% if sale_type == 'wholesale' %}selected{% endif %}>批发</option>
-                                        <option value="deleted" {% if sale_type == 'deleted' %}selected{% endif %}>已删除</option>
-                                    </select>
-                                </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-12 col-lg-6">
+                            <div class="input-group">
+                                <span class="input-group-text bg-primary text-white"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control border-primary" id="searchInput" name="q" value="{{ search_query }}" placeholder="搜索订单编号或客户...">
+                                <button class="btn btn-outline-primary d-none d-md-inline-block" type="button" id="clearSearch" title="清除搜索"><i class="bi bi-x-lg"></i></button>
                             </div>
                         </div>
-                        <div class="col-lg-4 d-flex justify-content-lg-end align-items-center">
-                            <div class="btn-group">
+                        <div class="col-6 col-lg-3">
+                            <div class="input-group">
+                                <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
+                                <input type="date" class="form-control border-primary" id="dateFilter" name="date_from" value="{{ date_from }}" placeholder="开始日期">
+                            </div>
+                        </div>
+                        <div class="col-6 col-lg-3">
+                            <div class="input-group">
+                                <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
+                                <input type="date" class="form-control border-primary" id="dateToFilter" name="date_to" value="{{ date_to }}" placeholder="结束日期">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-12 col-md-6 col-lg-3">
+                            <div class="btn-group w-100 quick-range-group">
                                 <button type="button" class="btn btn-outline-secondary active" id="viewAll">全部</button>
                                 <button type="button" class="btn btn-outline-secondary" id="viewToday">今日</button>
                                 <button type="button" class="btn btn-outline-secondary" id="viewMonth">本月</button>
                             </div>
                         </div>
+                        <div class="col-12 col-md-6 col-lg-3">
+                            <div class="input-group">
+                                <span class="input-group-text bg-primary text-white"><i class="bi bi-funnel"></i></span>
+                                <select class="form-select border-primary" id="statusFilter" name="status_filter">
+                                    <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>已完成</option>
+                                    <option value="deleted" {% if status_filter == 'deleted' %}selected{% endif %}>已删除</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-3">
+                            <div class="input-group">
+                                <span class="input-group-text bg-primary text-white"><i class="bi bi-tag"></i></span>
+                                <select class="form-select border-primary" id="saleTypeFilter" name="sale_type_filter">
+                                    <option value="all" {% if sale_type_filter == 'all' %}selected{% endif %}>销售方式：全部</option>
+                                    <option value="retail" {% if sale_type_filter == 'retail' %}selected{% endif %}>销售方式：零售</option>
+                                    <option value="wholesale" {% if sale_type_filter == 'wholesale' %}selected{% endif %}>销售方式：批发</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-3">
+                            <div class="input-group">
+                                <span class="input-group-text bg-primary text-white"><i class="bi bi-cash-coin"></i></span>
+                                <select class="form-select border-primary" id="amountScopeFilter" name="amount_scope">
+                                    <option value="retail" {% if amount_scope == 'retail' %}selected{% endif %}>金额口径：零售</option>
+                                    <option value="wholesale" {% if amount_scope == 'wholesale' %}selected{% endif %}>金额口径：批发</option>
+                                    <option value="total" {% if amount_scope == 'total' %}selected{% endif %}>金额口径：总额</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                 </form>
                 
-                <div class="table-responsive table-container">
+                <div class="table-responsive table-container mt-3">
                     <table class="table table-striped table-hover align-middle">
                         <thead>
                             <tr>
@@ -161,7 +185,7 @@
                         <div class="card border-0 bg-gradient-light h-100 shadow-sm">
                             <div class="card-body p-4">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="card-subtitle text-muted">今日销售额</h6>
+                                    <h6 class="card-subtitle text-muted">今日销售额（{{ amount_scope_label }}）</h6>
                                     <div class="stat-icon bg-success-subtle rounded-circle p-2">
                                         <i class="bi bi-currency-yen text-success fs-4"></i>
                                     </div>
@@ -177,7 +201,7 @@
                         <div class="card border-0 bg-gradient-light h-100 shadow-sm">
                             <div class="card-body p-4">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="card-subtitle text-muted">本月销售额</h6>
+                                    <h6 class="card-subtitle text-muted">本月销售额（{{ amount_scope_label }}）</h6>
                                     <div class="stat-icon bg-primary-subtle rounded-circle p-2">
                                         <i class="bi bi-bar-chart-line text-primary fs-4"></i>
                                     </div>
@@ -308,6 +332,8 @@
         const dateFilter = document.getElementById('dateFilter');
         const dateToFilter = document.getElementById('dateToFilter');
         const saleTypeFilter = document.getElementById('saleTypeFilter');
+        const statusFilter = document.getElementById('statusFilter');
+        const amountScopeFilter = document.getElementById('amountScopeFilter');
         const filterForm = document.getElementById('filterForm');
         
         if (dateFilter) {
@@ -324,6 +350,18 @@
         
         if (saleTypeFilter) {
             saleTypeFilter.addEventListener('change', function() {
+                submitFilterForm();
+            });
+        }
+
+        if (statusFilter) {
+            statusFilter.addEventListener('change', function() {
+                submitFilterForm();
+            });
+        }
+
+        if (amountScopeFilter) {
+            amountScopeFilter.addEventListener('change', function() {
                 submitFilterForm();
             });
         }
@@ -373,7 +411,7 @@
         
         // 设置活动按钮
         function setActiveButton(button) {
-            const buttons = document.querySelectorAll('.btn-group .btn');
+            const buttons = [viewAll, viewToday, viewMonth].filter(Boolean);
             buttons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
         }

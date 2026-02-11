@@ -68,6 +68,41 @@ def _get_warehouse_stock(product, warehouse):
     return inventory.quantity
 
 
+def _build_display_options(raw_values, display_map):
+    """将原始值列表转换为下拉可用的 (value, label)。"""
+    options = []
+    for raw_value in raw_values:
+        if raw_value is None:
+            continue
+        value = str(raw_value).strip()
+        if not value:
+            continue
+        options.append((value, display_map.get(value, value)))
+    return options
+
+
+def _prefill_inventory_form_from_query(request, form):
+    """根据 query 参数预填库存操作表单。"""
+    product_id = request.GET.get('product_id')
+    warehouse_id = request.GET.get('warehouse_id')
+
+    if product_id:
+        try:
+            pid = int(product_id)
+        except (TypeError, ValueError):
+            pid = None
+        if pid and form.fields['product'].queryset.filter(id=pid).exists():
+            form.fields['product'].initial = pid
+
+    if warehouse_id:
+        try:
+            wid = int(warehouse_id)
+        except (TypeError, ValueError):
+            wid = None
+        if wid and form.fields['warehouse'].queryset.filter(id=wid).exists():
+            form.fields['warehouse'].initial = wid
+
+
 def _create_inventory_operation_log(
     *,
     operator,
@@ -140,13 +175,13 @@ def inventory_list(request):
         if selected_warehouse is not None:
             selected_warehouse_value = str(selected_warehouse.id)
 
-    # 基础查询：使用 WarehouseInventory（与原 Inventory 行为一致，含 0 库存）
+    # 基础查询：使用 WarehouseInventory（仓库库存唯一真源）
     base_qs = WarehouseInventory.objects.select_related(
         'product', 'product__category', 'warehouse'
     ).all()
 
     if show_all_warehouses:
-        inventory_items = WarehouseScopeService.filter_warehouse_inventory_queryset(
+        inventory_scope_qs = WarehouseScopeService.filter_warehouse_inventory_queryset(
             request.user,
             base_qs,
             required_permission=UserWarehouseAccess.PERMISSION_VIEW,
@@ -157,27 +192,47 @@ def inventory_list(request):
             selected_warehouse,
             required_permission=UserWarehouseAccess.PERMISSION_VIEW,
         ):
-            inventory_items = base_qs.filter(warehouse=selected_warehouse)
+            inventory_scope_qs = base_qs.filter(warehouse=selected_warehouse)
         else:
-            inventory_items = base_qs.none()
+            inventory_scope_qs = base_qs.none()
     else:
-        inventory_items = base_qs.none()
+        inventory_scope_qs = base_qs.none()
 
     if category_id:
-        inventory_items = inventory_items.filter(product__category_id=category_id)
-    if color:
-        inventory_items = inventory_items.filter(product__color=color)
-    if size:
-        inventory_items = inventory_items.filter(product__size=size)
+        inventory_scope_qs = inventory_scope_qs.filter(product__category_id=category_id)
     if search_query:
-        inventory_items = inventory_items.filter(
+        inventory_scope_qs = inventory_scope_qs.filter(
             Q(product__name__icontains=search_query) |
             Q(product__barcode__icontains=search_query)
         )
 
+    color_display_map = dict(Product.COLOR_CHOICES)
+    size_display_map = dict(Product.SIZE_CHOICES)
+
+    available_color_values = sorted({
+        value for value in inventory_scope_qs.values_list('product__color', flat=True)
+        if value
+    })
+    available_size_values = sorted({
+        value for value in inventory_scope_qs.values_list('product__size', flat=True)
+        if value
+    })
+
+    colors = _build_display_options(available_color_values, color_display_map)
+    sizes = _build_display_options(available_size_values, size_display_map)
+
+    if color and all(option[0] != color for option in colors):
+        colors.append((color, color_display_map.get(color, color)))
+    if size and all(option[0] != size for option in sizes):
+        sizes.append((size, size_display_map.get(size, size)))
+
+    inventory_items = inventory_scope_qs
+    if color:
+        inventory_items = inventory_items.filter(product__color=color)
+    if size:
+        inventory_items = inventory_items.filter(product__size=size)
+
     categories = Category.objects.all()
-    colors = Product.COLOR_CHOICES
-    sizes = Product.SIZE_CHOICES
     warehouses = available_warehouses
 
     context = {
@@ -194,6 +249,64 @@ def inventory_list(request):
         'search_query': search_query,
     }
     return render(request, 'inventory/inventory_list.html', context)
+
+
+@login_required
+def inventory_update_warning_level(request, inventory_id):
+    """更新仓库库存预警阈值。"""
+    if request.method != 'POST':
+        messages.error(request, '更新预警库存请通过提交操作完成')
+        return redirect('inventory_list')
+
+    _ensure_inventory_write_access(
+        request.user,
+        UserWarehouseAccess.PERMISSION_STOCK_ADJUST,
+        '您无权修改库存预警阈值',
+    )
+
+    inventory_item = get_object_or_404(
+        WarehouseInventory.objects.select_related('product', 'warehouse'),
+        pk=inventory_id,
+    )
+    WarehouseScopeService.ensure_warehouse_permission(
+        user=request.user,
+        warehouse=inventory_item.warehouse,
+        required_permission=UserWarehouseAccess.PERMISSION_STOCK_ADJUST,
+        error_message='您无权修改该仓库的预警库存',
+    )
+
+    warning_level_raw = (request.POST.get('warning_level') or '').strip()
+    try:
+        warning_level = int(warning_level_raw)
+    except (TypeError, ValueError):
+        warning_level = None
+
+    if warning_level is None or warning_level < 0:
+        messages.error(request, '预警库存必须是大于等于 0 的整数')
+    else:
+        if inventory_item.warning_level != warning_level:
+            inventory_item.warning_level = warning_level
+            inventory_item.save(update_fields=['warning_level'])
+
+            OperationLog.objects.create(
+                operator=request.user,
+                operation_type='INVENTORY',
+                details=(
+                    f"库存预警更新: 商品={inventory_item.product.name}; 仓库={inventory_item.warehouse.name}; "
+                    f"新预警={warning_level}; source=inventory_update_warning_level"
+                ),
+                related_object_id=inventory_item.id,
+                related_content_type=ContentType.objects.get_for_model(WarehouseInventory),
+            )
+        messages.success(
+            request,
+            f"已更新 {inventory_item.product.name}（{inventory_item.warehouse.name}）预警库存为 {warning_level}"
+        )
+
+    next_url = request.POST.get('next', '')
+    if isinstance(next_url, str) and next_url.startswith('/'):
+        return redirect(next_url)
+    return redirect('inventory_list')
 
 
 @login_required
@@ -333,6 +446,7 @@ def inventory_in(request):
             user=request.user,
             required_permission=UserWarehouseAccess.PERMISSION_STOCK_IN,
         )
+        _prefill_inventory_form_from_query(request, form)
     return render(request, 'inventory/inventory_transaction_form.html', {
         'form': form,
         'form_title': '商品入库',
@@ -434,6 +548,7 @@ def inventory_out(request):
             user=request.user,
             required_permission=UserWarehouseAccess.PERMISSION_STOCK_OUT,
         )
+        _prefill_inventory_form_from_query(request, form)
     
     return render(request, 'inventory/inventory_transaction_form.html', {
         'form': form,
@@ -559,26 +674,31 @@ def inventory_adjust(request):
             user=request.user,
             required_permission=UserWarehouseAccess.PERMISSION_STOCK_ADJUST,
         )
-        product_id = request.GET.get('product_id')
-        if product_id:
-            try:
-                product = Product.objects.get(id=product_id)
-                form.fields['product'].initial = product
-            except Product.DoesNotExist:
-                pass
+        _prefill_inventory_form_from_query(request, form)
     
     # 获取当前库存（如果已选择商品）
     current_quantity = 0
-    selected_product = form.initial.get('product')
-    selected_warehouse = form.initial.get('warehouse')
-    if selected_product and selected_warehouse:
-        if not isinstance(selected_warehouse, Warehouse):
-            selected_warehouse = Warehouse.objects.filter(id=selected_warehouse).first()
+    selected_product_id = form['product'].value()
+    selected_warehouse_id = form['warehouse'].value()
+    if selected_product_id and selected_warehouse_id:
         try:
-            inventory = WarehouseInventory.objects.get(product=selected_product, warehouse=selected_warehouse)
-            current_quantity = inventory.quantity
-        except WarehouseInventory.DoesNotExist:
-            pass
+            selected_product_id = int(selected_product_id)
+            selected_warehouse_id = int(selected_warehouse_id)
+        except (TypeError, ValueError):
+            selected_product_id = None
+            selected_warehouse_id = None
+        if selected_product_id and selected_warehouse_id:
+            selected_product = Product.objects.filter(id=selected_product_id).first()
+            selected_warehouse = form.fields['warehouse'].queryset.filter(id=selected_warehouse_id).first()
+            if selected_product and selected_warehouse:
+                try:
+                    inventory = WarehouseInventory.objects.get(
+                        product=selected_product,
+                        warehouse=selected_warehouse,
+                    )
+                    current_quantity = inventory.quantity
+                except WarehouseInventory.DoesNotExist:
+                    pass
     
     return render(request, 'inventory/inventory_adjust_form.html', {
         'form': form,

@@ -66,9 +66,107 @@
         return new Chart(chartCanvas.getContext('2d'), finalConfig);
     }
 
+    function getDatasetVisible(chart, datasetIndex) {
+        if (!chart || !chart.data || !chart.data.datasets[datasetIndex]) {
+            return false;
+        }
+
+        if (typeof chart.isDatasetVisible === 'function') {
+            try {
+                return chart.isDatasetVisible(datasetIndex);
+            } catch (error) {
+                // Fall through to metadata-based visibility check.
+            }
+        }
+
+        if (typeof chart.getDatasetMeta === 'function') {
+            var meta = chart.getDatasetMeta(datasetIndex);
+            if (meta && meta.hidden !== null && typeof meta.hidden !== 'undefined') {
+                return !meta.hidden;
+            }
+        }
+
+        return !chart.data.datasets[datasetIndex].hidden;
+    }
+
+    function setDatasetVisible(chart, datasetIndex, visible) {
+        if (!chart || !chart.data || !chart.data.datasets[datasetIndex]) {
+            return;
+        }
+
+        if (typeof chart.setDatasetVisibility === 'function') {
+            chart.setDatasetVisibility(datasetIndex, visible);
+            return;
+        }
+
+        chart.data.datasets[datasetIndex].hidden = !visible;
+        if (typeof chart.getDatasetMeta === 'function') {
+            var meta = chart.getDatasetMeta(datasetIndex);
+            if (meta) {
+                meta.hidden = visible ? null : true;
+            }
+        }
+    }
+
+    function bindDatasetToggle(chart, controlsSelector) {
+        if (!chart) {
+            return;
+        }
+        var controls = document.querySelector(controlsSelector);
+        if (!controls) {
+            return;
+        }
+        var buttons = controls.querySelectorAll('[data-dataset-index]');
+        if (!buttons.length) {
+            return;
+        }
+
+        function syncButtonStates() {
+            buttons.forEach(function (button) {
+                var datasetIndex = parseInt(button.getAttribute('data-dataset-index'), 10);
+                if (Number.isNaN(datasetIndex) || !chart.data.datasets[datasetIndex]) {
+                    return;
+                }
+                var visible = getDatasetVisible(chart, datasetIndex);
+                button.classList.toggle('active', visible);
+                button.setAttribute('aria-pressed', visible ? 'true' : 'false');
+            });
+        }
+
+        function countVisibleDatasets() {
+            var visibleCount = 0;
+            chart.data.datasets.forEach(function (_, datasetIndex) {
+                if (getDatasetVisible(chart, datasetIndex)) {
+                    visibleCount += 1;
+                }
+            });
+            return visibleCount;
+        }
+
+        buttons.forEach(function (button) {
+            button.addEventListener('click', function () {
+                var datasetIndex = parseInt(button.getAttribute('data-dataset-index'), 10);
+                if (Number.isNaN(datasetIndex) || !chart.data.datasets[datasetIndex]) {
+                    return;
+                }
+                var visible = getDatasetVisible(chart, datasetIndex);
+                // Keep at least one dataset visible to avoid an empty chart state.
+                if (visible && countVisibleDatasets() <= 1) {
+                    return;
+                }
+                setDatasetVisible(chart, datasetIndex, !visible);
+                chart.update();
+                syncButtonStates();
+            });
+        });
+
+        syncButtonStates();
+    }
+
     window.ReportCharts = {
         palette: palette,
         baseOptions: baseOptions,
         create: createChart,
+        bindDatasetToggle: bindDatasetToggle,
     };
 })();

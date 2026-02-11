@@ -11,7 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from inventory.models import (
     Product,
-    Inventory,
+    WarehouseInventory,
     Category,
     check_inventory,
     update_inventory,
@@ -24,7 +24,7 @@ class InventoryService:
     
     @staticmethod
     @log_exception
-    def check_stock(product, quantity):
+    def check_stock(product, quantity, warehouse=None):
         """
         Check if there is sufficient stock for a product.
         
@@ -35,12 +35,12 @@ class InventoryService:
         Returns:
             bool: True if there is sufficient stock, False otherwise
         """
-        return check_inventory(product, quantity)
+        return check_inventory(product, quantity, warehouse=warehouse)
     
     @staticmethod
     @log_exception
     @transaction.atomic
-    def update_stock(product, quantity, transaction_type, operator, notes=""):
+    def update_stock(product, quantity, transaction_type, operator, notes="", warehouse=None):
         """
         Update stock level for a product.
         
@@ -50,6 +50,7 @@ class InventoryService:
             transaction_type: The type of transaction ('IN', 'OUT', 'ADJUST')
             operator: The user performing the operation
             notes: Notes about the transaction
+            warehouse: The warehouse to update
             
         Returns:
             tuple: (inventory, transaction) - The updated inventory and the transaction record
@@ -61,9 +62,12 @@ class InventoryService:
         if transaction_type not in ('IN', 'OUT', 'ADJUST'):
             raise InventoryValidationError("交易类型无效")
         
-        # Get or create inventory profile for compatibility and adjustment baseline.
-        inventory, _ = Inventory.objects.get_or_create(
+        if warehouse is None:
+            raise InventoryValidationError("库存操作必须指定仓库")
+
+        inventory, _ = WarehouseInventory.objects.get_or_create(
             product=product,
+            warehouse=warehouse,
             defaults={'quantity': 0, 'warning_level': 10}
         )
 
@@ -81,6 +85,7 @@ class InventoryService:
 
         success, inventory, result = update_inventory(
             product=product,
+            warehouse=warehouse,
             quantity=service_quantity,
             transaction_type=transaction_type,
             operator=operator,
@@ -174,11 +179,11 @@ class InventoryService:
         Get all inventory items that are below their warning level.
         
         Returns:
-            QuerySet: Inventory items with low stock
+            QuerySet: Warehouse inventory items with low stock
         """
-        return Inventory.objects.filter(
+        return WarehouseInventory.objects.filter(
             quantity__lte=F('warning_level')
-        ).select_related('product')
+        ).select_related('product', 'warehouse')
     
     @staticmethod
     @log_exception
@@ -189,6 +194,6 @@ class InventoryService:
         Returns:
             Decimal: Total inventory value
         """
-        return Inventory.objects.annotate(
+        return WarehouseInventory.objects.annotate(
             value=F('quantity') * F('product__cost')
-        ).aggregate(total_value=Sum('value'))['total_value'] or 0 
+        ).aggregate(total_value=Sum('value'))['total_value'] or 0

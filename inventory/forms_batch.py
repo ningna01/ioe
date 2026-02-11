@@ -1,6 +1,6 @@
 from django import forms
 from django.core.validators import FileExtensionValidator
-from inventory.models import Product, Category, Inventory
+from inventory.models import Product, Category
 import csv
 import io
 

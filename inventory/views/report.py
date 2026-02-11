@@ -16,7 +16,7 @@ from openpyxl.utils import get_column_letter
 import io
 
 from inventory.models import (
-    Product, Category, Inventory, InventoryTransaction,
+    Product, Category, InventoryTransaction,
     Sale, SaleItem, Store  # Member, MemberTransaction 已禁用
 )
 from inventory.services.report_service import ReportService

@@ -61,7 +61,17 @@
                             </div>
                             <div class="card-body">
                                 {{ form.color|as_crispy_field }}
+                                <datalist id="color-suggestions">
+                                    {% for color_value in form.color_suggestions %}
+                                    <option value="{{ color_value }}"></option>
+                                    {% endfor %}
+                                </datalist>
                                 {{ form.size|as_crispy_field }}
+                                <datalist id="size-suggestions">
+                                    {% for size_value in form.size_suggestions %}
+                                    <option value="{{ size_value }}"></option>
+                                    {% endfor %}
+                                </datalist>
                             </div>
                         </div>
                     </div>
@@ -151,10 +161,14 @@
             allowClear: true
         });
         
-        // 颜色和尺码下拉框增强
-        $('#id_color, #id_size').select2({
-            placeholder: '请选择',
-            allowClear: true
+        // 仅在字段为下拉框时启用 select2
+        ['#id_color', '#id_size'].forEach(function(selector) {
+            if ($(selector).is('select')) {
+                $(selector).select2({
+                    placeholder: '请选择',
+                    allowClear: true
+                });
+            }
         });
         
         // 表单验证

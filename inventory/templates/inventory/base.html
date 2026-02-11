@@ -583,7 +583,7 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
         <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="{% url 'index' %}">
+            <a class="navbar-brand d-flex align-items-center" href="{% if nav_permissions.sales_focus_mode %}{% url 'sale_create' %}{% else %}{% url 'index' %}{% endif %}">
                 <i class="bi bi-box-seam me-2"></i>库存管理系统
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -621,7 +621,7 @@
                     {% endif %}
                     {% if nav_permissions.show_sales %}
                     <li class="nav-item">
-                        <a class="nav-link {% if '/sales/' in request.path %}active{% endif %}" href="{% url 'sale_list' %}">
+                        <a class="nav-link {% if '/sales/' in request.path %}active{% endif %}" href="{% if nav_permissions.sales_focus_mode %}{% url 'sale_create' %}{% else %}{% url 'sale_list' %}{% endif %}">
                             <i class="bi bi-cart me-1"></i>销售管理
                         </a>
                     </li>

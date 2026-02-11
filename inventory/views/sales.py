@@ -17,7 +17,6 @@ from django.urls import reverse
 from inventory.models import (
     Sale,
     SaleItem,
-    Inventory,
     WarehouseInventory,
     OperationLog,
     Product,
@@ -30,6 +29,7 @@ from inventory.models import (
 )  # Member, MemberTransaction, MemberLevel 已禁用
 from inventory.forms import SaleForm, SaleItemForm
 from inventory.services.warehouse_scope_service import WarehouseScopeService
+from inventory.services.user_mode_service import is_sales_focus_user
 from inventory.utils.query_utils import paginate_queryset
 
 
@@ -72,16 +72,15 @@ def _get_sale_for_user_or_404(user, sale_id):
 
 
 def _get_available_stock_quantity(product, warehouse=None):
-    """返回指定仓库（或全局）当前可用库存数量。"""
-    if warehouse is not None:
-        warehouse_inventory = WarehouseInventory.objects.filter(
-            product=product,
-            warehouse=warehouse
-        ).only('quantity').first()
-        return warehouse_inventory.quantity if warehouse_inventory else 0
+    """返回指定仓库当前可用库存数量。"""
+    if warehouse is None:
+        return 0
 
-    inventory = Inventory.objects.filter(product=product).only('quantity').first()
-    return inventory.quantity if inventory else 0
+    warehouse_inventory = WarehouseInventory.objects.filter(
+        product=product,
+        warehouse=warehouse
+    ).only('quantity').first()
+    return warehouse_inventory.quantity if warehouse_inventory else 0
 
 
 def _build_sale_inventory_notes(*, source, intent, sale, product, quantity, user_note=''):
@@ -130,6 +129,9 @@ def _create_sale_stock_change_log(
 def sale_list(request):
     """销售单列表视图"""
     _ensure_sale_module_access(request.user)
+    if is_sales_focus_user(request.user):
+        return redirect('sale_create')
+
     today = timezone.now().date()
     base_sales = Sale.objects.select_related('operator', 'warehouse').prefetch_related('items').order_by('-created_at')
     base_sales = WarehouseScopeService.filter_sales_queryset(
@@ -137,43 +139,84 @@ def sale_list(request):
         base_sales,
         required_permission=UserWarehouseAccess.PERMISSION_SALE,
     )
-    # 统计口径固定为原始销售数据，不受删除可见性筛选影响
-    today_sales = base_sales.filter(created_at__date=today).aggregate(total=Sum('total_amount'))['total'] or 0
-    month_sales = base_sales.filter(created_at__month=today.month).aggregate(total=Sum('total_amount'))['total'] or 0
-    total_sales = base_sales.count()
+    # 从 GET 参数获取搜索和筛选条件
+    search_query = request.GET.get('q', '').strip()
+    date_from = request.GET.get('date_from', '').strip()
+    date_to = request.GET.get('date_to', '').strip()
 
-    # 从GET参数获取搜索和筛选条件
-    search_query = request.GET.get('q', '')
-    date_from = request.GET.get('date_from', '')
-    date_to = request.GET.get('date_to', '')
-    sale_type = request.GET.get('sale_type', '')
-    # 获取所有销售单，使用prefetch_related优化查询
+    legacy_sale_type = request.GET.get('sale_type', '').strip().lower()
+    status_filter = request.GET.get('status_filter', '').strip().lower()
+    sale_type_filter = request.GET.get('sale_type_filter', '').strip().lower()
+    amount_scope = request.GET.get('amount_scope', 'retail').strip().lower()
+
+    if not status_filter:
+        status_filter = 'deleted' if legacy_sale_type == 'deleted' else 'completed'
+    if status_filter not in ['completed', 'deleted']:
+        status_filter = 'completed'
+
+    if not sale_type_filter:
+        sale_type_filter = legacy_sale_type if legacy_sale_type in ['retail', 'wholesale'] else 'all'
+    if sale_type_filter not in ['all', 'retail', 'wholesale']:
+        sale_type_filter = 'all'
+
+    if amount_scope not in ['retail', 'wholesale', 'total']:
+        amount_scope = 'retail'
+
     sales = base_sales
-    # 默认只显示已完成，只有 sale_type=deleted 时显示已删除
-    if sale_type == 'deleted':
+    if status_filter == 'deleted':
         sales = sales.filter(status='DELETED')
     else:
         sales = sales.filter(status='COMPLETED')
 
-    # 应用筛选条件
     if search_query:
         sales = sales.filter(id__icontains=search_query)
-    
-    if date_from and date_to:
-        from datetime import datetime
+
+    date_from_obj = None
+    date_to_obj = None
+    if date_from:
         try:
             date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
-            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
-            date_to_obj = datetime.combine(date_to_obj.date(), datetime.max.time())
-            sales = sales.filter(created_at__range=[date_from_obj, date_to_obj])
         except ValueError:
-            # 日期格式不正确，忽略筛选
-            pass
-    
-    # 应用销售方式筛选
-    if sale_type and sale_type in ['retail', 'wholesale']:
-        # 由于销售单只有一种销售方式，可以通过items__sale_type筛选
-        sales = sales.filter(items__sale_type=sale_type).distinct()
+            date_from_obj = None
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+        except ValueError:
+            date_to_obj = None
+
+    if date_from_obj and date_to_obj:
+        sales = sales.filter(
+            created_at__range=[
+                date_from_obj,
+                datetime.combine(date_to_obj.date(), datetime.max.time()),
+            ]
+        )
+    elif date_from_obj:
+        sales = sales.filter(created_at__date__gte=date_from_obj.date())
+    elif date_to_obj:
+        sales = sales.filter(created_at__date__lte=date_to_obj.date())
+
+    if sale_type_filter in ['retail', 'wholesale']:
+        sales = sales.filter(items__sale_type=sale_type_filter).distinct()
+
+    # 统计口径固定基于原始销售明细，不受删除可见性筛选影响
+    metrics_items = SaleItem.objects.filter(sale__in=base_sales)
+    if amount_scope in ['retail', 'wholesale']:
+        metrics_items = metrics_items.filter(sale_type=amount_scope)
+    today_sales = metrics_items.filter(
+        sale__created_at__date=today
+    ).aggregate(total=Sum('subtotal'))['total'] or 0
+    month_sales = metrics_items.filter(
+        sale__created_at__year=today.year,
+        sale__created_at__month=today.month,
+    ).aggregate(total=Sum('subtotal'))['total'] or 0
+    total_sales = sales.count()
+
+    amount_scope_labels = {
+        'retail': '零售',
+        'wholesale': '批发',
+        'total': '总额',
+    }
 
     # 分页
     page_number = request.GET.get('page', 1)
@@ -184,7 +227,10 @@ def sale_list(request):
         'search_query': search_query,
         'date_from': date_from,
         'date_to': date_to,
-        'sale_type': sale_type,
+        'status_filter': status_filter,
+        'sale_type_filter': sale_type_filter,
+        'amount_scope': amount_scope,
+        'amount_scope_label': amount_scope_labels[amount_scope],
         'today_sales': today_sales,
         'month_sales': month_sales,
         'total_sales': total_sales
@@ -629,6 +675,10 @@ def sale_create(request):
                 print(f"刷新后的销售单金额: total={refreshed_sale.total_amount}, discount={refreshed_sale.discount_amount}, final={refreshed_sale.final_amount}")
                 
                 # 交易成功，显示成功消息
+                if is_sales_focus_user(request.user):
+                    messages.success(request, '销售单创建成功，已进入新建销售页面')
+                    return redirect('sale_create')
+
                 messages.success(request, '销售单创建成功')
                 return redirect('sale_detail', sale_id=sale.id)
                 
@@ -859,6 +909,10 @@ def sale_complete(request, sale_id):
                 related_content_type=ContentType.objects.get_for_model(Sale)
             )
             
+            if is_sales_focus_user(request.user):
+                messages.success(request, '销售单已完成，已进入新建销售页面')
+                return redirect('sale_create')
+
             messages.success(request, '销售单已完成')
             return redirect('sale_detail', sale_id=sale.id)
     else:

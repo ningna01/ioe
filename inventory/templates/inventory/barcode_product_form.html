@@ -196,8 +196,8 @@
                     </div>
                     
                     <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="id_price" class="form-label">售价</label>
+                        <div class="col-md-4 mb-3">
+                            <label for="id_price" class="form-label">零售价</label>
                             {% if form.price.errors %}
                                 <div class="alert alert-danger">{{ form.price.errors }}</div>
                             {% endif %}
@@ -206,7 +206,7 @@
                                 <input type="number" name="price" id="id_price" class="form-control" value="{{ form.price.value|default:'' }}{% if not form.price.value and barcode_data %}{{ barcode_data.suggested_price|default:'' }}{% endif %}" step="0.01" min="0" required>
                             </div>
                         </div>
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-4 mb-3">
                             <label for="id_cost" class="form-label">成本价</label>
                             {% if form.cost.errors %}
                                 <div class="alert alert-danger">{{ form.cost.errors }}</div>
@@ -216,10 +216,20 @@
                                 <input type="number" name="cost" id="id_cost" class="form-control" value="{{ form.cost.value|default:'0.00' }}" step="0.01" min="0">
                             </div>
                         </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="id_wholesale_price" class="form-label">批发价（可选）</label>
+                            {% if form.wholesale_price.errors %}
+                                <div class="alert alert-danger">{{ form.wholesale_price.errors }}</div>
+                            {% endif %}
+                            <div class="input-group">
+                                <span class="input-group-text">¥</span>
+                                <input type="number" name="wholesale_price" id="id_wholesale_price" class="form-control" value="{{ form.wholesale_price.value|default:'' }}" step="0.01" min="0">
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="row">
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-4 mb-3">
                             <label for="id_manufacturer" class="form-label">制造商</label>
                             {% if form.manufacturer.errors %}
                                 <div class="alert alert-danger">{{ form.manufacturer.errors }}</div>
@@ -229,11 +239,29 @@
                                 <input type="text" name="manufacturer" id="id_manufacturer" class="form-control" value="{{ form.manufacturer.value|default:'' }}{% if not form.manufacturer.value and barcode_data %}{{ barcode_data.manufacturer|default:'' }}{% endif %}">
                             </div>
                         </div>
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-4 mb-3">
                             <label for="id_initial_stock" class="form-label">初始库存数量</label>
                             <div class="input-group">
                                 <span class="input-group-text"><i class="bi bi-box-seam"></i></span>
                                 <input type="number" name="initial_stock" id="id_initial_stock" class="form-control" value="1" min="0">
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label for="id_warning_level" class="form-label">预警库存</label>
+                            {% if form.warning_level.errors %}
+                                <div class="alert alert-danger">{{ form.warning_level.errors }}</div>
+                            {% endif %}
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-exclamation-triangle"></i></span>
+                                <input
+                                    type="number"
+                                    name="warning_level"
+                                    id="id_warning_level"
+                                    class="form-control"
+                                    value="{{ form.warning_level.value|default:'10' }}"
+                                    min="0"
+                                    step="1"
+                                >
                             </div>
                         </div>
                     </div>
@@ -246,12 +274,21 @@
                             {% endif %}
                             <div class="input-group">
                                 <span class="input-group-text"><i class="bi bi-palette"></i></span>
-                                <select name="color" id="id_color" class="form-control form-select">
-                                    {% for value, text in form.fields.color.choices %}
-                                        <option value="{{ value }}" {% if form.color.value == value %}selected{% endif %}>{{ text }}</option>
-                                    {% endfor %}
-                                </select>
+                                <input
+                                    type="text"
+                                    name="color"
+                                    id="id_color"
+                                    class="form-control"
+                                    value="{{ form.color.value|default:'' }}"
+                                    placeholder="例如: 深灰"
+                                    list="color-suggestions"
+                                >
                             </div>
+                            <datalist id="color-suggestions">
+                                {% for color_value in form.color_suggestions %}
+                                <option value="{{ color_value }}"></option>
+                                {% endfor %}
+                            </datalist>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label for="id_size" class="form-label">尺码</label>
@@ -260,12 +297,21 @@
                             {% endif %}
                             <div class="input-group">
                                 <span class="input-group-text"><i class="bi bi-rulers"></i></span>
-                                <select name="size" id="id_size" class="form-control form-select">
-                                    {% for value, text in form.fields.size.choices %}
-                                        <option value="{{ value }}" {% if form.size.value == value %}selected{% endif %}>{{ text }}</option>
-                                    {% endfor %}
-                                </select>
+                                <input
+                                    type="text"
+                                    name="size"
+                                    id="id_size"
+                                    class="form-control"
+                                    value="{{ form.size.value|default:'' }}"
+                                    placeholder="例如: 160L"
+                                    list="size-suggestions"
+                                >
                             </div>
+                            <datalist id="size-suggestions">
+                                {% for size_value in form.size_suggestions %}
+                                <option value="{{ size_value }}"></option>
+                                {% endfor %}
+                            </datalist>
                         </div>
                     </div>
                     

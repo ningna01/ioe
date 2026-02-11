@@ -68,8 +68,8 @@ class Product(models.Model):
     # 新增字段
     specification = models.CharField(max_length=200, blank=True, verbose_name='规格')
     manufacturer = models.CharField(max_length=200, blank=True, verbose_name='制造商')
-    color = models.CharField(max_length=20, choices=COLOR_CHOICES, blank=True, default='', verbose_name='颜色')
-    size = models.CharField(max_length=10, choices=SIZE_CHOICES, blank=True, default='', verbose_name='尺码')
+    color = models.CharField(max_length=20, blank=True, default='', verbose_name='颜色')
+    size = models.CharField(max_length=30, blank=True, default='', verbose_name='尺码')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
     is_active = models.BooleanField(default=True, verbose_name='是否启用')
@@ -86,6 +86,19 @@ class Product(models.Model):
         verbose_name = '商品'
         verbose_name_plural = '商品'
     
+    @staticmethod
+    def _map_choice_display(value, choices):
+        if value is None:
+            return ''
+        mapping = dict(choices)
+        return mapping.get(value, value)
+
+    def get_color_display(self):
+        return self._map_choice_display(self.color, self.COLOR_CHOICES)
+
+    def get_size_display(self):
+        return self._map_choice_display(self.size, self.SIZE_CHOICES)
+
     def __str__(self):
         return self.name
 

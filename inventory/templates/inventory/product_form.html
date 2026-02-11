@@ -91,6 +91,11 @@
                                 <span class="input-group-text"><i class="bi bi-palette"></i></span>
                                 {{ form.color }}
                             </div>
+                            <datalist id="color-suggestions">
+                                {% for color_value in form.color_suggestions %}
+                                <option value="{{ color_value }}"></option>
+                                {% endfor %}
+                            </datalist>
                             {% if form.color.help_text %}
                             <div class="form-text">{{ form.color.help_text }}</div>
                             {% endif %}
@@ -103,6 +108,11 @@
                                 <span class="input-group-text"><i class="bi bi-aspect-ratio"></i></span>
                                 {{ form.size }}
                             </div>
+                            <datalist id="size-suggestions">
+                                {% for size_value in form.size_suggestions %}
+                                <option value="{{ size_value }}"></option>
+                                {% endfor %}
+                            </datalist>
                             {% if form.size.help_text %}
                             <div class="form-text">{{ form.size.help_text }}</div>
                             {% endif %}

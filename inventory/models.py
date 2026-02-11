@@ -7,7 +7,7 @@ from inventory.models.product import (
 )
 
 from inventory.models.inventory import (
-    Inventory, InventoryTransaction, 
+    InventoryTransaction,
     check_inventory, update_inventory, StockAlert
 )
 

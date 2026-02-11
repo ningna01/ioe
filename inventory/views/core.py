@@ -13,6 +13,7 @@ from inventory.models import (
 )
 from inventory.permissions.decorators import permission_required
 from inventory.services.warehouse_scope_service import WarehouseScopeService
+from inventory.services.user_mode_service import is_sales_focus_user
 
 
 def _build_dashboard_scope(user, request, required_permission=None):
@@ -37,6 +38,9 @@ def _ensure_report_module_access(user):
 @login_required
 def index(request):
     """系统首页/仪表盘视图"""
+    if is_sales_focus_user(request.user):
+        return redirect('sale_create')
+
     # 获取系统概览统计
     today = timezone.now().date()
     yesterday = today - timedelta(days=1)

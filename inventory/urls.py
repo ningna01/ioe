@@ -34,6 +34,7 @@ from .views import product as product_views
 from .views import inventory as inventory_views
 from .views import system as system_views  # 导入重构后的系统视图模块
 from .views import warehouse as warehouse_views
+from .views.auth import RoleAwareLoginView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -60,10 +61,11 @@ urlpatterns = [
     path('inventory/in/', inventory_views.inventory_in, name='inventory_in'),
     path('inventory/out/', inventory_views.inventory_out, name='inventory_out'),
     path('inventory/adjust/', inventory_views.inventory_adjust, name='inventory_adjust'),
+    path('inventory/<int:inventory_id>/warning-level/', inventory_views.inventory_update_warning_level, name='inventory_update_warning_level'),
     path('inventory/transactions/', inventory_views.inventory_transaction_list, name='inventory_transaction_list'),
     path('sales/create/', sales_views.sale_create, name='sale_create'),
     path('sales/<int:sale_id>/items/create/', sales_views.sale_item_create, name='sale_item_create'),
-    path('accounts/login/', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
+    path('accounts/login/', RoleAwareLoginView.as_view(template_name='registration/login.html'), name='login'),
     path('accounts/logout/', auth_views.LogoutView.as_view(next_page='/accounts/login/'), name='logout'),
     
     # 会员管理URL - 使用新的会员视图模块（已禁用）

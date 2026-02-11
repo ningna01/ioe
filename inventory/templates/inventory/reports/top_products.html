@@ -16,6 +16,7 @@
                 日期范围: {{ start_date|date:"Y-m-d" }} 至 {{ end_date|date:"Y-m-d" }}
             </p>
             <p class="text-muted">仓库范围: {{ warehouse_scope_label }}</p>
+            <p class="text-muted mb-0">销售口径: {{ sale_type_label }}</p>
         </div>
         <div class="col-md-4 text-md-end">
             <a href="{% url 'reports_index' %}" class="btn btn-outline-secondary">
@@ -35,14 +36,22 @@
                     <form method="post">
                         {% csrf_token %}
                         <div class="row">
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 {{ form.start_date|as_crispy_field }}
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 {{ form.end_date|as_crispy_field }}
                             </div>
                             <div class="col-md-2">
                                 {{ form.limit|as_crispy_field }}
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">销售方式</label>
+                                <select name="sale_type" class="form-select">
+                                    <option value="all" {% if sale_type == 'all' %}selected{% endif %}>全部</option>
+                                    <option value="retail" {% if sale_type == 'retail' %}selected{% endif %}>零售</option>
+                                    <option value="wholesale" {% if sale_type == 'wholesale' %}selected{% endif %}>批发</option>
+                                </select>
                             </div>
                             <div class="col-md-2">
                                 <label class="form-label">仓库</label>
@@ -71,6 +80,11 @@
                     <h3 class="h5 mb-0">热销商品统计图</h3>
                 </div>
                 <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2 mb-3" id="topProductsChartControls">
+                        <button type="button" class="btn btn-sm btn-outline-primary active" data-dataset-index="0">销量</button>
+                        <button type="button" class="btn btn-sm btn-outline-success" data-dataset-index="1">销售额</button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-dataset-index="2">利润</button>
+                    </div>
                     <div class="chart-container">
                         <canvas id="topProductsChart"></canvas>
                     </div>
@@ -147,8 +161,14 @@
             {% endfor %}
         ];
 
+        const profitData = [
+            {% for product in top_products %}
+                {{ product.profit|default:0 }},
+            {% endfor %}
+        ];
+
         // 创建图表
-        ReportCharts.create('topProductsChart', {
+        const topProductsChart = ReportCharts.create('topProductsChart', {
             type: 'bar',
             data: {
                 labels: labels,
@@ -169,7 +189,18 @@
                         borderColor: ReportCharts.palette.green,
                         borderWidth: 1,
                         borderRadius: 4,
-                        xAxisID: 'x'
+                        xAxisID: 'x',
+                        hidden: true
+                    },
+                    {
+                        label: '利润',
+                        data: profitData,
+                        backgroundColor: 'rgba(212, 99, 90, 0.55)',
+                        borderColor: ReportCharts.palette.red,
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        xAxisID: 'x',
+                        hidden: true
                     }
                 ]
             },
@@ -194,6 +225,7 @@
                 }
             }
         });
+        ReportCharts.bindDatasetToggle(topProductsChart, '#topProductsChartControls');
     });
 </script>
 {% endif %}

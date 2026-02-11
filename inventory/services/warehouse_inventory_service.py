@@ -8,11 +8,11 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
-from inventory.models import Inventory, InventoryTransaction, WarehouseInventory
+from inventory.models import InventoryTransaction, WarehouseInventory
 
 
 class WarehouseInventoryService:
-    """Unified inventory read/write service with warehouse-aware semantics."""
+    """Unified inventory read/write service with warehouse-only semantics."""
 
     VALID_TRANSACTION_TYPES = {'IN', 'OUT', 'ADJUST'}
 
@@ -24,15 +24,16 @@ class WarehouseInventoryService:
         Args:
             product: Product instance.
             quantity: Required stock quantity (positive integer).
-            warehouse: Warehouse instance (optional, None means legacy global inventory).
+            warehouse: Warehouse instance.
         """
         if quantity is None:
             return False
         if quantity <= 0:
             return True
+        if warehouse is None:
+            return False
 
-        inventory_model, lookup = cls._resolve_inventory_target(product, warehouse)
-        inventory = inventory_model.objects.filter(**lookup).first()
+        inventory = WarehouseInventory.objects.filter(product=product, warehouse=warehouse).first()
         if inventory is None:
             return False
         return inventory.quantity >= quantity
@@ -47,22 +48,17 @@ class WarehouseInventoryService:
         - OUT: negative quantity means decrease (positive also accepted and normalized).
         - ADJUST: quantity is treated as delta (can be positive or negative).
         """
-        cls._validate_inputs(transaction_type=transaction_type, operator=operator)
+        cls._validate_inputs(transaction_type=transaction_type, operator=operator, warehouse=warehouse)
         normalized_quantity = cls._normalize_quantity(quantity, transaction_type)
-        inventory_model, lookup = cls._resolve_inventory_target(product, warehouse)
 
         with transaction.atomic():
-            inventory = cls._get_or_create_locked_inventory(inventory_model, lookup)
+            inventory = cls._get_or_create_locked_inventory(product=product, warehouse=warehouse)
             old_quantity = inventory.quantity
             new_quantity = old_quantity + normalized_quantity
 
             if new_quantity < 0:
-                if warehouse is not None:
-                    raise ValidationError(
-                        f"仓库库存不足: {product.name} ({warehouse.name}), 当前库存: {old_quantity}, 请求数量: {abs(normalized_quantity)}"
-                    )
                 raise ValidationError(
-                    f"库存不足: {product.name}, 当前库存: {old_quantity}, 请求数量: {abs(normalized_quantity)}"
+                    f"仓库库存不足: {product.name} ({warehouse.name}), 当前库存: {old_quantity}, 请求数量: {abs(normalized_quantity)}"
                 )
 
             inventory.quantity = new_quantity
@@ -80,11 +76,13 @@ class WarehouseInventoryService:
         return inventory, stock_transaction
 
     @classmethod
-    def _validate_inputs(cls, transaction_type, operator):
+    def _validate_inputs(cls, transaction_type, operator, warehouse):
         if transaction_type not in cls.VALID_TRANSACTION_TYPES:
             raise ValidationError("交易类型无效")
         if not isinstance(operator, User):
             raise ValidationError("操作员必须是有效的用户")
+        if warehouse is None:
+            raise ValidationError("库存操作必须指定仓库")
 
     @staticmethod
     def _normalize_quantity(quantity, transaction_type):
@@ -99,24 +97,18 @@ class WarehouseInventoryService:
         return quantity
 
     @staticmethod
-    def _resolve_inventory_target(product, warehouse):
-        if warehouse is not None:
-            return WarehouseInventory, {'product': product, 'warehouse': warehouse}
-        return Inventory, {'product': product}
-
-    @staticmethod
-    def _get_or_create_locked_inventory(inventory_model, lookup):
-        locked_qs = inventory_model.objects.select_for_update()
+    def _get_or_create_locked_inventory(product, warehouse):
+        locked_qs = WarehouseInventory.objects.select_for_update()
         try:
-            return locked_qs.get(**lookup)
-        except inventory_model.DoesNotExist:
-            defaults = {'quantity': 0}
-            if inventory_model is WarehouseInventory:
-                defaults['warning_level'] = 10
-            elif inventory_model is Inventory:
-                defaults['warning_level'] = 10
+            return locked_qs.get(product=product, warehouse=warehouse)
+        except WarehouseInventory.DoesNotExist:
             try:
-                return inventory_model.objects.create(**lookup, **defaults)
+                return WarehouseInventory.objects.create(
+                    product=product,
+                    warehouse=warehouse,
+                    quantity=0,
+                    warning_level=10,
+                )
             except IntegrityError:
                 # Another transaction created the same row concurrently.
-                return locked_qs.get(**lookup)
+                return locked_qs.get(product=product, warehouse=warehouse)
