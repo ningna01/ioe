@@ -15,6 +15,13 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+IOE_DB_PATH = os.environ.get('IOE_DB_PATH')
+IOE_MEDIA_ROOT = os.environ.get('IOE_MEDIA_ROOT')
+IOE_LOG_DIR = os.environ.get('IOE_LOG_DIR')
+IOE_STATIC_DIR = os.environ.get('IOE_STATIC_DIR')
+IOE_BACKUP_ROOT = os.environ.get('IOE_BACKUP_ROOT')
+IOE_TEMP_DIR = os.environ.get('IOE_TEMP_DIR')
+
 SECRET_KEY = os.environ.get('SECRET_KEY', 'p5k!d@$v_z@6i*+j$9x7b!n=o(h&w#q)s@l^m*g3r+t(u-v_y')
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -81,7 +88,7 @@ WSGI_APPLICATION = 'inventory.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db' / 'db.sqlite3',
+        'NAME': IOE_DB_PATH or (BASE_DIR / 'db' / 'db.sqlite3'),
     }
 }
 
@@ -118,10 +125,18 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+_static_source_dir = IOE_STATIC_DIR or os.path.join(BASE_DIR, 'static')
+STATICFILES_DIRS = [_static_source_dir] if os.path.isdir(_static_source_dir) else []
 
 MEDIA_URL = 'media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = IOE_MEDIA_ROOT or os.path.join(BASE_DIR, 'media')
+
+# Backup and temp paths used by system backup views.
+BACKUP_ROOT = IOE_BACKUP_ROOT or os.path.join(BASE_DIR, 'backups')
+TEMP_DIR = IOE_TEMP_DIR or os.path.join(BASE_DIR, 'temp')
+
+os.makedirs(BACKUP_ROOT, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -142,6 +157,9 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 DEFAULT_FROM_EMAIL = 'noreply@example.com'
 
 # 日志配置
+_log_dir = IOE_LOG_DIR or os.path.join(BASE_DIR, 'logs')
+os.makedirs(_log_dir, exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -164,7 +182,7 @@ LOGGING = {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/inventory.log'),
+            'filename': os.path.join(_log_dir, 'inventory.log'),
             'formatter': 'verbose',
         },
     },

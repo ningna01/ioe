@@ -90,3 +90,9 @@ yarn-error.log
 docs/
 scripts/
 inventory/tests/
+packaging/
+.venv_packager/
+dist-macos/
+dist-windows/
+.venv_packager_win7/
+.venv_packager_win10/
