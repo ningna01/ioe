@@ -16,10 +16,19 @@
                         <a href="{% url 'sale_list' %}" class="btn btn-secondary">
                             <i class="bi bi-arrow-left me-1"></i> 返回列表
                         </a>
-                        {% if sale.status != 'DELETED' %}
+                        {% if sale.status == 'UNSETTLED' %}
+                        <a href="{% url 'sale_complete' sale.id %}" class="btn btn-outline-success">
+                            <i class="bi bi-check2-circle me-1"></i> 完成结算
+                        </a>
+                        {% endif %}
+                        {% if sale.status != 'DELETED' and sale.status != 'ABANDONED' %}
                         <a href="{% url 'sale_cancel' sale.id %}" class="btn btn-outline-danger">
                             <i class="bi bi-trash me-1"></i> 删除订单
                         </a>
+                        {% elif sale.status == 'ABANDONED' %}
+                        <button class="btn btn-outline-secondary" disabled>
+                            <i class="bi bi-slash-circle me-1"></i> 已放弃
+                        </button>
                         {% else %}
                         <button class="btn btn-outline-secondary" disabled>
                             <i class="bi bi-check2-circle me-1"></i> 已删除
@@ -68,6 +77,10 @@
                         <span class="text-muted">状态:</span>
                         {% if sale.status == 'DELETED' %}
                         <span class="badge bg-danger">{{ sale.get_status_display }}</span>
+                        {% elif sale.status == 'ABANDONED' %}
+                        <span class="badge bg-secondary">{{ sale.get_status_display }}</span>
+                        {% elif sale.status == 'UNSETTLED' %}
+                        <span class="badge bg-warning text-dark">{{ sale.get_status_display }}</span>
                         {% else %}
                         <span class="badge bg-success">{{ sale.get_status_display }}</span>
                         {% endif %}
@@ -95,6 +108,21 @@
                         <span class="text-danger">-¥{{ sale.discount_amount|floatformat:2 }}</span>
                     </li>
                     {% endif %}
+                    {% if sale.status == 'UNSETTLED' %}
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span class="text-muted">已收定金:</span>
+                        <span class="text-primary">¥{{ sale.deposit_amount|floatformat:2 }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span class="text-muted">待结金额:</span>
+                        <span class="text-danger">¥{{ sale.remaining_amount|floatformat:2 }}</span>
+                    </li>
+                    {% elif sale.status == 'ABANDONED' %}
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span class="text-muted">保留定金:</span>
+                        <span class="text-primary">¥{{ sale.deposit_amount|floatformat:2 }}</span>
+                    </li>
+                    {% endif %}
                     <li class="list-group-item d-flex justify-content-between">
                         <span class="text-muted">实付金额:</span>
                         <span class="fs-5 fw-bold text-success">¥{{ sale.final_amount|floatformat:2 }}</span>
@@ -104,14 +132,14 @@
                         <span>
                             {% if sale.payment_method == 'cash' %}
                             <span class="badge bg-success">现金支付</span>
-                            {% elif sale.payment_method == 'wechat' %}
-                            <span class="badge bg-success">微信支付</span>
-                            {% elif sale.payment_method == 'alipay' %}
-                            <span class="badge bg-success">支付宝</span>
                             {% elif sale.payment_method == 'card' %}
                             <span class="badge bg-success">刷卡</span>
+                            {% elif sale.payment_method == 'balance' %}
+                            <span class="badge bg-info text-dark">账户余额</span>
+                            {% elif sale.payment_method == 'mixed' %}
+                            <span class="badge bg-primary">混合支付</span>
                             {% else %}
-                            <span class="badge bg-secondary">其他</span>
+                            <span class="badge bg-secondary">{{ sale.get_payment_method_display|default:'其他' }}</span>
                             {% endif %}
                         </span>
                     </li>
@@ -216,11 +244,26 @@
                                 <td colspan="5" class="text-end fw-bold">优惠:</td>
                                 <td class="fw-bold text-danger">-¥{{ sale.discount_amount|floatformat:2 }}</td>
                             </tr>
+                            {% endif %}
+                            {% if sale.status == 'UNSETTLED' %}
+                            <tr>
+                                <td colspan="5" class="text-end fw-bold">已收定金:</td>
+                                <td class="fw-bold text-primary">¥{{ sale.deposit_amount|floatformat:2 }}</td>
+                            </tr>
+                            <tr>
+                                <td colspan="5" class="text-end fw-bold">待结金额:</td>
+                                <td class="fw-bold text-danger">¥{{ sale.remaining_amount|floatformat:2 }}</td>
+                            </tr>
+                            {% elif sale.status == 'ABANDONED' %}
+                            <tr>
+                                <td colspan="5" class="text-end fw-bold">保留定金:</td>
+                                <td class="fw-bold text-primary">¥{{ sale.deposit_amount|floatformat:2 }}</td>
+                            </tr>
+                            {% endif %}
                             <tr>
                                 <td colspan="5" class="text-end fw-bold">实付金额:</td>
                                 <td class="fw-bold fs-5 text-success">¥{{ sale.final_amount|floatformat:2 }}</td>
                             </tr>
-                            {% endif %}
                         </tfoot>
                     </table>
                 </div>

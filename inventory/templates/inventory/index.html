@@ -176,36 +176,40 @@
             </div>
         </div>
         
-        <!-- 最近操作日志 -->
+        <!-- 订单预警 -->
         <div class="col-md-4">
             <div class="card mb-4">
                 <div class="card-header bg-secondary text-white">
-                    <h5 class="card-title mb-0">最近操作</h5>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">订单预警</h5>
+                        <span class="badge bg-light text-dark">{{ order_alert_count }}</span>
+                    </div>
                 </div>
                 <div class="card-body card-scrollable p-0">
-                    {% if recent_logs %}
+                    {% if order_alerts %}
                     <div class="list-group list-group-flush">
-                        {% for log in recent_logs %}
+                        {% for alert in order_alerts %}
                         <div class="list-group-item">
-                            <div class="d-flex align-items-center">
-                                <div class="icon-circle 
-                                    {% if log.operation_type == 'SALE' %}bg-success{% elif log.operation_type == 'INVENTORY' %}bg-primary{% elif log.operation_type == 'MEMBER' %}bg-warning{% elif log.operation_type == 'INVENTORY_CHECK' %}bg-info{% else %}bg-secondary{% endif %} 
-                                    text-white me-2" style="width: 28px; height: 28px; font-size: 12px;">
-                                    <i class="fas 
-                                        {% if log.operation_type == 'SALE' %}fa-shopping-cart{% elif log.operation_type == 'INVENTORY' %}fa-warehouse{% elif log.operation_type == 'MEMBER' %}fa-user{% elif log.operation_type == 'INVENTORY_CHECK' %}fa-clipboard-check{% else %}fa-info{% endif %}">
-                                    </i>
-                                </div>
+                            <div class="d-flex justify-content-between align-items-start gap-2">
                                 <div>
-                                    <p class="mb-0">{{ log.details }}</p>
-                                    <small class="text-muted">{{ log.timestamp|date:"m-d H:i" }} by {{ log.operator.username }}</small>
+                                    <p class="mb-1">
+                                        订单 #{{ alert.sale.id }} 已超期 {{ alert.overdue_days }} 天
+                                    </p>
+                                    <small class="text-muted d-block">
+                                        仓库: {{ alert.sale.warehouse.name|default:'未指定' }} | 操作员: {{ alert.sale.operator.username }}
+                                    </small>
+                                    <small class="text-danger d-block">
+                                        待结金额: ¥{{ alert.remaining_amount|floatformat:2 }}
+                                    </small>
                                 </div>
+                                <a class="btn btn-sm btn-outline-warning" href="{% url 'sale_detail' alert.sale.id %}">处理</a>
                             </div>
                         </div>
                         {% endfor %}
                     </div>
                     {% else %}
-                    <div class="alert alert-info m-3">
-                        <i class="fas fa-info-circle me-2"></i> 暂无操作记录
+                    <div class="alert alert-success m-3">
+                        <i class="fas fa-check-circle me-2"></i> 暂无超期未结算订单
                     </div>
                     {% endif %}
                 </div>

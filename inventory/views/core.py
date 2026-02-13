@@ -9,7 +9,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from inventory.models import (
-    Product, Sale, SaleItem, UserWarehouseAccess, WarehouseInventory, OperationLog
+    Product, Sale, SaleItem, UserWarehouseAccess, WarehouseInventory
 )
 from inventory.permissions.decorators import permission_required
 from inventory.services.warehouse_scope_service import WarehouseScopeService
@@ -45,8 +45,6 @@ def index(request):
     today = timezone.now().date()
     yesterday = today - timedelta(days=1)
     week_ago = today - timedelta(days=7)
-    month_ago = today - timedelta(days=30)
-    
     scope = _build_dashboard_scope(request.user, request)
     warehouse_ids = scope['warehouse_ids']
 
@@ -76,7 +74,7 @@ def index(request):
     out_of_stock_products = product_stock_summary.filter(total_quantity=0).count()
     
     # 销售统计
-    sales_scope = Sale.objects.all()
+    sales_scope = Sale.objects.exclude(status='DELETED')
     if warehouse_ids is not None:
         if warehouse_ids:
             sales_scope = sales_scope.filter(warehouse_id__in=warehouse_ids)
@@ -86,12 +84,12 @@ def index(request):
     total_sales = sales_scope.count()
     today_sales = sales_scope.filter(created_at__date=today).count()
     today_sales_amount = sales_scope.filter(created_at__date=today).aggregate(
-        total=Sum('total_amount')
+        total=Sum('final_amount')
     )['total'] or 0
     
     yesterday_sales = sales_scope.filter(created_at__date=yesterday).count()
     yesterday_sales_amount = sales_scope.filter(created_at__date=yesterday).aggregate(
-        total=Sum('total_amount')
+        total=Sum('final_amount')
     )['total'] or 0
     
     # 会员统计（已禁用）
@@ -104,7 +102,7 @@ def index(request):
     for i in range(7):
         date = today - timedelta(days=i)
         daily_sales = sales_scope.filter(created_at__date=date).aggregate(
-            total=Sum('total_amount')
+            total=Sum('final_amount')
         )['total'] or 0
         sales_trend.append({
             'date': date.strftime('%m-%d'),
@@ -114,7 +112,8 @@ def index(request):
     
     # 热销商品
     top_products_query = SaleItem.objects.filter(
-        sale__created_at__gte=week_ago
+        sale__created_at__gte=week_ago,
+        sale__status='COMPLETED',
     )
     if warehouse_ids is not None:
         if warehouse_ids:
@@ -129,8 +128,21 @@ def index(request):
         total_amount=Sum('subtotal')
     ).order_by('-total_qty')[:5]
     
-    # 最近操作日志
-    recent_logs = OperationLog.objects.all().order_by('-timestamp')[:10]
+    # 超期未结算订单预警
+    alert_deadline = timezone.now() - timedelta(days=60)
+    overdue_orders = list(
+        sales_scope.filter(
+            status='UNSETTLED',
+            created_at__lt=alert_deadline,
+        ).select_related('warehouse', 'operator').order_by('created_at')[:10]
+    )
+    order_alerts = []
+    for sale in overdue_orders:
+        order_alerts.append({
+            'sale': sale,
+            'overdue_days': (today - sale.created_at.date()).days,
+            'remaining_amount': sale.remaining_amount,
+        })
     
     # 获取当月生日会员（已禁用）
     # current_month = today.month
@@ -156,7 +168,8 @@ def index(request):
         # 'new_members_month': new_members_month,
         'sales_trend': sales_trend,
         'top_products': top_products,
-        'recent_logs': recent_logs,
+        'order_alerts': order_alerts,
+        'order_alert_count': len(order_alerts),
         'warehouses': scope['warehouses'],
         'selected_warehouse': scope['selected_warehouse_value'],
         'warehouse_scope_label': scope['scope_label'],

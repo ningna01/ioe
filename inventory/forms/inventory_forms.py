@@ -55,6 +55,9 @@ class InventoryTransactionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         # 使用select_related优化查询
         self.fields['product'].queryset = Product.objects.filter(is_active=True).select_related('category')
+        self.fields['product'].label_from_instance = (
+            lambda product: f'{product.name} ({product.barcode})'
+        )
 
         if self.user is not None:
             accessible_warehouses = WarehouseScopeService.get_accessible_warehouses(

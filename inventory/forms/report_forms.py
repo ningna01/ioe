@@ -74,6 +74,7 @@ class DateRangeForm(forms.Form):
     
     start_date = forms.DateField(
         label='开始日期',
+        required=False,
         widget=forms.DateInput(attrs={
             'type': 'date', 
             'class': 'form-control',
@@ -87,6 +88,7 @@ class DateRangeForm(forms.Form):
     
     end_date = forms.DateField(
         label='结束日期',
+        required=False,
         widget=forms.DateInput(attrs={
             'type': 'date', 
             'class': 'form-control',
@@ -272,6 +274,7 @@ class DateRangeForm(forms.Form):
         preset = cleaned_data.get('date_range_preset')
         start_date = cleaned_data.get('start_date')
         end_date = cleaned_data.get('end_date')
+        today = timezone.localdate()
         
         # 如果选择了预设日期范围（不是自定义），计算对应的开始和结束日期
         if preset and preset != 'custom':
@@ -279,6 +282,21 @@ class DateRangeForm(forms.Form):
             if start_date and end_date:
                 cleaned_data['start_date'] = start_date
                 cleaned_data['end_date'] = end_date
+
+        # 报表查询允许空日期提交：默认回填当天，避免前端空值拦截后无法直接查询。
+        start_date = cleaned_data.get('start_date')
+        end_date = cleaned_data.get('end_date')
+        if not start_date and not end_date:
+            start_date = today
+            end_date = today
+            cleaned_data['start_date'] = start_date
+            cleaned_data['end_date'] = end_date
+        elif start_date and not end_date:
+            cleaned_data['end_date'] = start_date
+            end_date = start_date
+        elif end_date and not start_date:
+            cleaned_data['start_date'] = end_date
+            start_date = end_date
                 
         # 确保开始日期不大于结束日期
         if start_date and end_date and start_date > end_date:

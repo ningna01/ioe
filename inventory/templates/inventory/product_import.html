@@ -1,0 +1,70 @@
+{% extends 'inventory/base.html' %}
+
+{% block title %}商品导入 - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+                <div>
+                    <h2 class="card-title mb-0">批量导入商品</h2>
+                    <p class="text-muted mb-0">支持 CSV / XLSX，一次性快速新增商品档案</p>
+                </div>
+                <a href="{% url 'product_list' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left me-1"></i>返回商品列表
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-7 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">上传导入文件</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="{{ form.csv_file.id_for_label }}" class="form-label">
+                            {{ form.csv_file.label }}
+                        </label>
+                        {{ form.csv_file }}
+                        <div class="form-text">
+                            推荐按手动新增字段导入：
+                            <code>barcode,name,category,color,size,description,price,cost,wholesale_price,specification,manufacturer,initial_stock,warning_level,is_active</code>。
+                            其中 <code>specification</code> 表示商品规格，预警库存请使用 <code>warning_level</code> 字段。
+                            兼容旧表头 <code>retail_price</code>/<code>cost_price</code>。
+                        </div>
+                        {% if form.csv_file.errors %}
+                        <div class="text-danger small mt-1">
+                            {% for error in form.csv_file.errors %}
+                            <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-upload me-1"></i>开始导入
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">示例模板（CSV）</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">可复制为 `.csv` 或在 Excel 中按相同表头建立 `.xlsx`：</p>
+                <pre class="bg-light border rounded p-3 small mb-0" style="max-height: 280px; overflow: auto;">{{ sample_csv }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

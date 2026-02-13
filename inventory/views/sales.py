@@ -49,6 +49,18 @@ def _is_sale_completed(sale):
     return _get_sale_status(sale) == 'COMPLETED'
 
 
+def _is_sale_unsettled(sale):
+    return _get_sale_status(sale) == 'UNSETTLED'
+
+
+def _is_sale_abandoned(sale):
+    return _get_sale_status(sale) == 'ABANDONED'
+
+
+def _is_sale_deposit_locked(sale):
+    return _get_sale_status(sale) in {'UNSETTLED', 'ABANDONED'}
+
+
 def _is_sale_deleted(sale):
     if _get_sale_status(sale) == 'DELETED':
         return True
@@ -62,6 +74,14 @@ def _is_sale_deleted(sale):
         Q(details__startswith=f'删除销售单 #{sale.id}') |
         Q(details__startswith=f'取消销售单 #{sale.id}')
     ).exists()
+
+
+def _sale_needs_inventory_revert(sale):
+    """
+    仅对已扣库存的单据执行回补。
+    兼容旧流程中的 DRAFT 状态单据。
+    """
+    return _get_sale_status(sale) in {'COMPLETED', 'DRAFT'}
 
 
 def _get_sale_for_user_or_404(user, sale_id):
@@ -147,11 +167,11 @@ def sale_list(request):
     legacy_sale_type = request.GET.get('sale_type', '').strip().lower()
     status_filter = request.GET.get('status_filter', '').strip().lower()
     sale_type_filter = request.GET.get('sale_type_filter', '').strip().lower()
-    amount_scope = request.GET.get('amount_scope', 'retail').strip().lower()
+    amount_scope = request.GET.get('amount_scope', 'total').strip().lower()
 
     if not status_filter:
         status_filter = 'deleted' if legacy_sale_type == 'deleted' else 'completed'
-    if status_filter not in ['completed', 'deleted']:
+    if status_filter not in ['completed', 'unsettled', 'abandoned', 'deleted']:
         status_filter = 'completed'
 
     if not sale_type_filter:
@@ -165,6 +185,10 @@ def sale_list(request):
     sales = base_sales
     if status_filter == 'deleted':
         sales = sales.filter(status='DELETED')
+    elif status_filter == 'abandoned':
+        sales = sales.filter(status='ABANDONED')
+    elif status_filter == 'unsettled':
+        sales = sales.filter(status='UNSETTLED')
     else:
         sales = sales.filter(status='COMPLETED')
 
@@ -199,22 +223,45 @@ def sale_list(request):
     if sale_type_filter in ['retail', 'wholesale']:
         sales = sales.filter(items__sale_type=sale_type_filter).distinct()
 
-    # 统计口径固定基于原始销售明细，不受删除可见性筛选影响
-    metrics_items = SaleItem.objects.filter(sale__in=base_sales)
-    if amount_scope in ['retail', 'wholesale']:
+    active_sales = base_sales.exclude(status='DELETED')
+    deposit_locked_sales = active_sales.filter(status__in=['UNSETTLED', 'ABANDONED'])
+    if amount_scope == 'total':
+        today_sales = active_sales.filter(
+            created_at__date=today
+        ).aggregate(total=Sum('final_amount'))['total'] or 0
+        month_sales = active_sales.filter(
+            created_at__year=today.year,
+            created_at__month=today.month,
+        ).aggregate(total=Sum('final_amount'))['total'] or 0
+    else:
+        metrics_items = SaleItem.objects.filter(
+            sale__in=active_sales.filter(status='COMPLETED')
+        )
         metrics_items = metrics_items.filter(sale_type=amount_scope)
-    today_sales = metrics_items.filter(
-        sale__created_at__date=today
-    ).aggregate(total=Sum('subtotal'))['total'] or 0
-    month_sales = metrics_items.filter(
-        sale__created_at__year=today.year,
-        sale__created_at__month=today.month,
-    ).aggregate(total=Sum('subtotal'))['total'] or 0
+        today_sales = metrics_items.filter(
+            sale__created_at__date=today
+        ).aggregate(total=Sum('subtotal'))['total'] or 0
+        month_sales = metrics_items.filter(
+            sale__created_at__year=today.year,
+            sale__created_at__month=today.month,
+        ).aggregate(total=Sum('subtotal'))['total'] or 0
+
+        # 未结算单的销售额按定金计入统计，避免定金漏记。
+        unsettled_today_deposit = deposit_locked_sales.filter(
+            created_at__date=today
+        ).aggregate(total=Sum('deposit_amount'))['total'] or 0
+        unsettled_month_deposit = deposit_locked_sales.filter(
+            created_at__year=today.year,
+            created_at__month=today.month,
+        ).aggregate(total=Sum('deposit_amount'))['total'] or 0
+
+        today_sales += unsettled_today_deposit
+        month_sales += unsettled_month_deposit
     total_sales = sales.count()
 
     amount_scope_labels = {
-        'retail': '零售',
-        'wholesale': '批发',
+        'retail': '零售+定金',
+        'wholesale': '批发+定金',
         'total': '总额',
     }
 
@@ -248,19 +295,34 @@ def sale_detail(request, sale_id):
     items_total = sum((item.subtotal or Decimal('0.00')) for item in items)
     if items_total > 0 and (sale.total_amount == 0 or abs(sale.total_amount - items_total) > Decimal('0.01')):
         print(f"警告: 销售单金额({sale.total_amount})与商品项总和({items_total})不一致，正在修复")
-        discount_amount = sale.discount_amount or Decimal('0.00')
-        if discount_amount < 0:
-            discount_amount = Decimal('0.00')
-        if discount_amount > items_total:
-            discount_amount = items_total
-        final_amount = items_total - discount_amount
+        if _is_sale_deposit_locked(sale):
+            deposit_amount = sale.deposit_amount or Decimal('0.00')
+            if deposit_amount < 0:
+                deposit_amount = Decimal('0.00')
+            if deposit_amount > items_total:
+                deposit_amount = items_total
 
-        Sale.objects.filter(pk=sale.id).update(
-            total_amount=items_total,
-            discount_amount=discount_amount,
-            final_amount=final_amount
-        )
-        sale.refresh_from_db(fields=['total_amount', 'discount_amount', 'final_amount'])
+            Sale.objects.filter(pk=sale.id).update(
+                total_amount=items_total,
+                discount_amount=Decimal('0.00'),
+                deposit_amount=deposit_amount,
+                final_amount=deposit_amount
+            )
+            sale.refresh_from_db(fields=['total_amount', 'discount_amount', 'deposit_amount', 'final_amount'])
+        else:
+            discount_amount = sale.discount_amount or Decimal('0.00')
+            if discount_amount < 0:
+                discount_amount = Decimal('0.00')
+            if discount_amount > items_total:
+                discount_amount = items_total
+            final_amount = items_total - discount_amount
+
+            Sale.objects.filter(pk=sale.id).update(
+                total_amount=items_total,
+                discount_amount=discount_amount,
+                final_amount=final_amount
+            )
+            sale.refresh_from_db(fields=['total_amount', 'discount_amount', 'final_amount'])
     
     context = {
         'sale': sale,
@@ -304,6 +366,11 @@ def sale_create(request):
         if selected_warehouse is None:
             messages.error(request, '当前用户没有可用仓库，请先配置仓库授权')
             return redirect('sale_create')
+
+        settlement_type = (request.POST.get('settlement_type', 'completed') or 'completed').strip().lower()
+        if settlement_type not in ['completed', 'unsettled']:
+            settlement_type = 'completed'
+        is_unsettled_sale = settlement_type == 'unsettled'
         
         # 获取前端提交的商品信息
         products_data = []
@@ -384,8 +451,8 @@ def sale_create(request):
                     valid_products = False
                     continue
 
-                # 检查库存（按销售单仓库维度）
-                if check_inventory(product, quantity, selected_warehouse):
+                # 未结算订单不锁库存；直接结算订单按仓库库存校验
+                if is_unsettled_sale or check_inventory(product, quantity, selected_warehouse):
                     # 确保使用Decimal类型计算小计，避免精度问题
                     subtotal = price * Decimal(str(quantity))
                     print(f"商品 {product.name} 的小计: 价格={price} * 数量={quantity} = {subtotal}")
@@ -529,6 +596,26 @@ def sale_create(request):
             total_amount = Decimal('855.33')
             discount_amount = Decimal('0.00')
             final_amount = total_amount
+
+        deposit_amount = Decimal('0.00')
+        if is_unsettled_sale:
+            raw_deposit = (request.POST.get('deposit_amount', '0') or '').strip()
+            try:
+                deposit_amount = Decimal(raw_deposit)
+            except (InvalidOperation, TypeError, ValueError):
+                messages.error(request, '定金金额格式无效，请输入正确金额')
+                return redirect('sale_create')
+
+            if deposit_amount <= 0:
+                messages.error(request, '未结算订单的定金金额必须大于 0')
+                return redirect('sale_create')
+
+            if deposit_amount > total_amount:
+                messages.error(request, '定金金额不能大于订单应付金额')
+                return redirect('sale_create')
+
+            discount_amount = Decimal('0.00')
+            final_amount = deposit_amount
         
         form = SaleForm(request.POST)
         if form.is_valid():
@@ -536,11 +623,13 @@ def sale_create(request):
             sale = form.save(commit=False)
             sale.operator = request.user
             sale.warehouse = selected_warehouse
+            sale.status = 'UNSETTLED' if is_unsettled_sale else 'COMPLETED'
             
             # 设置金额
             sale.total_amount = total_amount
             sale.discount_amount = discount_amount
             sale.final_amount = final_amount
+            sale.deposit_amount = deposit_amount if is_unsettled_sale else Decimal('0.00')
             
             # 处理会员关联（已禁用）
             # member_id = request.POST.get('member')
@@ -552,7 +641,11 @@ def sale_create(request):
             #         pass
             
             # 设置支付方式
-            sale.payment_method = request.POST.get('payment_method', 'cash')
+            submitted_payment_method = (request.POST.get('payment_method', 'cash') or 'cash').strip()
+            allowed_payment_methods = {code for code, _ in Sale.PAYMENT_METHODS}
+            if submitted_payment_method not in allowed_payment_methods:
+                submitted_payment_method = 'cash'
+            sale.payment_method = submitted_payment_method
             
             # 设置积分（已禁用：实付金额的整数部分）
             # sale.points_earned = int(sale.final_amount) if sale.final_amount is not None else 0
@@ -563,7 +656,7 @@ def sale_create(request):
             # 使用事务处理，确保所有操作要么全部成功，要么全部失败
             try:
                 with transaction.atomic():
-                    # 添加商品项并更新库存
+                    # 添加商品项；仅直接结账单据在此时扣减库存
                     for item_data in valid_products_data:
                         # 手动创建SaleItem，避免触发连锁更新
                         sale_item = SaleItem(
@@ -600,39 +693,39 @@ def sale_create(request):
                         sale_item = SaleItem.objects.get(id=sale_item.id)
                         print(f"重新加载后的SaleItem - ID: {sale_item.id}, 价格: {sale_item.price}, 小计: {sale_item.subtotal}")
                         
-                        # 统一走库存服务写入口，避免视图层直改库存
-                        stock_notes = _build_sale_inventory_notes(
-                            source='sale_create',
-                            intent='sale_create_item_out',
-                            sale=sale,
-                            product=item_data['product'],
-                            quantity=item_data['quantity'],
-                        )
-                        success, inventory_obj, stock_result = update_inventory(
-                            product=item_data['product'],
-                            warehouse=selected_warehouse,
-                            quantity=-item_data['quantity'],
-                            transaction_type='OUT',
-                            operator=request.user,
-                            notes=stock_notes
-                        )
-                        if not success:
-                            raise ValueError(
-                                f"商品 {item_data['product'].name} 库存更新失败: {stock_result}"
+                        if not is_unsettled_sale:
+                            stock_notes = _build_sale_inventory_notes(
+                                source='sale_create',
+                                intent='sale_create_item_out',
+                                sale=sale,
+                                product=item_data['product'],
+                                quantity=item_data['quantity'],
                             )
-                        
-                        stock_transaction = stock_result
-                        _create_sale_stock_change_log(
-                            operator=request.user,
-                            sale=sale,
-                            product=item_data['product'],
-                            action='出库',
-                            requested_quantity=item_data['quantity'],
-                            delta_quantity=-item_data['quantity'],
-                            current_quantity=inventory_obj.quantity,
-                            transaction_obj=stock_transaction,
-                            source='sale_create',
-                        )
+                            success, inventory_obj, stock_result = update_inventory(
+                                product=item_data['product'],
+                                warehouse=selected_warehouse,
+                                quantity=-item_data['quantity'],
+                                transaction_type='OUT',
+                                operator=request.user,
+                                notes=stock_notes
+                            )
+                            if not success:
+                                raise ValueError(
+                                    f"商品 {item_data['product'].name} 库存更新失败: {stock_result}"
+                                )
+                            
+                            stock_transaction = stock_result
+                            _create_sale_stock_change_log(
+                                operator=request.user,
+                                sale=sale,
+                                product=item_data['product'],
+                                action='出库',
+                                requested_quantity=item_data['quantity'],
+                                delta_quantity=-item_data['quantity'],
+                                current_quantity=inventory_obj.quantity,
+                                transaction_obj=stock_transaction,
+                                source='sale_create',
+                            )
                     
                     # 如果有会员，更新会员积分和消费记录（已禁用）
                     # if sale.member:
@@ -641,15 +734,23 @@ def sale_create(request):
                     #     sale.member.total_spend += sale.final_amount
                     #     sale.member.save()
                     
-                    # 记录完成销售操作日志
-                    OperationLog.objects.create(
-                        operator=request.user,
-                        operation_type='SALE',
-                        details=(
+                    # 记录销售操作日志
+                    if is_unsettled_sale:
+                        operation_details = (
+                            f'创建未结算销售单 #{sale.id}，定金: {sale.deposit_amount}，'
+                            f'商品总额: {sale.total_amount}，支付方式: {sale.get_payment_method_display()}，'
+                            f'仓库: {selected_warehouse.name}；来源: sale_create'
+                        )
+                    else:
+                        operation_details = (
                             f'完成销售单 #{sale.id}，总金额: {sale.final_amount}，'
                             f'支付方式: {sale.get_payment_method_display()}，仓库: {selected_warehouse.name}；'
                             f'来源: sale_create'
-                        ),
+                        )
+                    OperationLog.objects.create(
+                        operator=request.user,
+                        operation_type='SALE',
+                        details=operation_details,
                         related_object_id=sale.id,
                         related_content_type=ContentType.objects.get_for_model(Sale)
                     )
@@ -660,7 +761,7 @@ def sale_create(request):
                         total_str = str(total_amount)
                         discount_str = str(discount_amount)
                         final_str = str(final_amount)
-                        points = int(final_amount) if final_amount else 0
+                        points = int(final_amount) if (final_amount and not is_unsettled_sale) else 0
                         
                         print(f"更新销售单最终金额: total={total_str}, discount={discount_str}, final={final_str}, points={points}")
                         
@@ -676,10 +777,16 @@ def sale_create(request):
                 
                 # 交易成功，显示成功消息
                 if is_sales_focus_user(request.user):
-                    messages.success(request, '销售单创建成功，已进入新建销售页面')
+                    if is_unsettled_sale:
+                        messages.success(request, '未结算订单创建成功，库存未扣减，已进入新建销售页面')
+                    else:
+                        messages.success(request, '销售单创建成功，已进入新建销售页面')
                     return redirect('sale_create')
 
-                messages.success(request, '销售单创建成功')
+                if is_unsettled_sale:
+                    messages.success(request, '未结算订单创建成功，库存未扣减')
+                else:
+                    messages.success(request, '销售单创建成功')
                 return redirect('sale_detail', sale_id=sale.id)
                 
             except Exception as e:
@@ -730,6 +837,9 @@ def sale_item_create(request, sale_id):
     if _is_sale_completed(sale):
         messages.error(request, '已完成的销售单不能新增商品')
         return redirect('sale_detail', sale_id=sale.id)
+    if _is_sale_abandoned(sale):
+        messages.error(request, '已放弃的销售单不能新增商品')
+        return redirect('sale_detail', sale_id=sale.id)
     if _is_sale_deleted(sale):
         messages.error(request, '已删除的销售单不能新增商品')
         return redirect('sale_detail', sale_id=sale.id)
@@ -746,7 +856,7 @@ def sale_item_create(request, sale_id):
             elif hasattr(sale_item, 'price') and not hasattr(sale_item, 'actual_price'):
                 sale_item.actual_price = sale_item.price
 
-            if not check_inventory(sale_item.product, sale_item.quantity, sale.warehouse):
+            if (not _is_sale_unsettled(sale)) and (not check_inventory(sale_item.product, sale_item.quantity, sale.warehouse)):
                 available_quantity = _get_available_stock_quantity(sale_item.product, sale.warehouse)
                 messages.error(
                     request,
@@ -766,38 +876,42 @@ def sale_item_create(request, sale_id):
                     sale.update_total_amount()
                     sale.save()
 
-                    stock_notes = _build_sale_inventory_notes(
-                        source='sale_item_create',
-                        intent='sale_item_create_out',
-                        sale=sale,
-                        product=sale_item.product,
-                        quantity=sale_item.quantity,
-                    )
-                    success, inventory_obj, stock_result = update_inventory(
-                        product=sale_item.product,
-                        warehouse=sale.warehouse,
-                        quantity=-sale_item.quantity,
-                        transaction_type='OUT',
-                        operator=request.user,
-                        notes=stock_notes
-                    )
-                    if not success:
-                        raise ValueError(stock_result)
+                    if not _is_sale_unsettled(sale):
+                        stock_notes = _build_sale_inventory_notes(
+                            source='sale_item_create',
+                            intent='sale_item_create_out',
+                            sale=sale,
+                            product=sale_item.product,
+                            quantity=sale_item.quantity,
+                        )
+                        success, inventory_obj, stock_result = update_inventory(
+                            product=sale_item.product,
+                            warehouse=sale.warehouse,
+                            quantity=-sale_item.quantity,
+                            transaction_type='OUT',
+                            operator=request.user,
+                            notes=stock_notes
+                        )
+                        if not success:
+                            raise ValueError(stock_result)
 
-                    stock_transaction = stock_result
-                    _create_sale_stock_change_log(
-                        operator=request.user,
-                        sale=sale,
-                        product=sale_item.product,
-                        action='出库',
-                        requested_quantity=sale_item.quantity,
-                        delta_quantity=-sale_item.quantity,
-                        current_quantity=inventory_obj.quantity,
-                        transaction_obj=stock_transaction,
-                        source='sale_item_create',
-                    )
+                        stock_transaction = stock_result
+                        _create_sale_stock_change_log(
+                            operator=request.user,
+                            sale=sale,
+                            product=sale_item.product,
+                            action='出库',
+                            requested_quantity=sale_item.quantity,
+                            delta_quantity=-sale_item.quantity,
+                            current_quantity=inventory_obj.quantity,
+                            transaction_obj=stock_transaction,
+                            source='sale_item_create',
+                        )
 
-                messages.success(request, '商品添加成功')
+                if _is_sale_unsettled(sale):
+                    messages.success(request, '商品添加成功（未结算订单暂不扣减库存）')
+                else:
+                    messages.success(request, '商品添加成功')
                 return redirect('sale_item_create', sale_id=sale.id)
             except Exception as e:
                 messages.error(request, f'商品添加失败: {str(e)}')
@@ -819,9 +933,14 @@ def sale_complete(request, sale_id):
     if _is_sale_deleted(sale):
         messages.error(request, '已删除的销售单不能执行完成操作')
         return redirect('sale_detail', sale_id=sale.id)
+    if _is_sale_abandoned(sale):
+        messages.error(request, '已放弃的销售单不能执行完成操作')
+        return redirect('sale_detail', sale_id=sale.id)
     if _is_sale_completed(sale):
         messages.warning(request, '销售单已完成，请勿重复提交')
         return redirect('sale_detail', sale_id=sale.id)
+
+    sale_was_unsettled = _is_sale_unsettled(sale)
 
     if request.method == 'POST':
         form = SaleForm(request.POST, instance=sale)
@@ -829,91 +948,106 @@ def sale_complete(request, sale_id):
             sale = form.save(commit=False)
             sale.operator = request.user
             sale.status = 'COMPLETED'
-            
+
             # 更新总金额（防止异常情况）
             sale.update_total_amount()
-            
-            # 处理会员折扣（已禁用）
-            # member_id = request.POST.get('member')
-            # if member_id:
-            #     try:
-            #         member = Member.objects.get(id=member_id)
-            #         sale.member = member
-            # 
-            #         # 应用会员折扣率
-            #         discount_rate = Decimal('1.0')  # 默认无折扣
-            #         if member.level and member.level.discount is not None:
-            #             try:
-            #                 discount_rate = Decimal(str(member.level.discount))
-            #             except (ValueError, InvalidOperation, TypeError):
-            #                 # 如果折扣率无效，使用默认值
-            #                 discount_rate = Decimal('1.0')
-            # 
-            #         sale.discount_amount = sale.total_amount * (1 - discount_rate)
-            #         sale.final_amount = sale.total_amount - sale.discount_amount
-            # 
-            #         # 计算获得积分 (实付金额的整数部分)
-            #         sale.points_earned = int(sale.final_amount)
-            # 
-            #         # 更新会员积分和消费记录
-            #         member.points += sale.points_earned
-            #         member.purchase_count += 1
-            #         member.total_spend += sale.final_amount
-            #         member.save()
-            #     except Member.DoesNotExist:
-            #         pass
-            
+
             # 设置支付方式
-            payment_method = request.POST.get('payment_method')
+            payment_method = (request.POST.get('payment_method', '') or '').strip()
             if payment_method:
+                allowed_payment_methods = {code for code, _ in Sale.PAYMENT_METHODS}
+                if payment_method not in allowed_payment_methods:
+                    payment_method = 'cash'
                 sale.payment_method = payment_method
-                
-                # 余额支付处理（已禁用）
-                # if payment_method == 'balance' and sale.member:
-                #     if sale.member.balance >= sale.final_amount:
-                #         sale.member.balance -= sale.final_amount
-                #         sale.member.save()
-                #         sale.balance_paid = sale.final_amount
-                #     else:
-                #         messages.error(request, '会员余额不足')
-                #         return redirect('sale_complete', sale_id=sale.id)
-                # 
-                # # 如果是混合支付，处理余额部分（已禁用）
-                # elif payment_method == 'mixed' and sale.member:
-                #     balance_amount = request.POST.get('balance_amount', 0)
-                #     try:
-                #         balance_amount = Decimal(balance_amount)
-                #     except (ValueError, TypeError, InvalidOperation):
-                #         balance_amount = Decimal('0')
-                #         
-                #     if balance_amount > 0:
-                #         if sale.member.balance >= balance_amount:
-                #             sale.member.balance -= balance_amount
-                #             sale.member.save()
-                #             sale.balance_paid = balance_amount
-                #         else:
-                #             messages.error(request, '会员余额不足')
-                #             return redirect('sale_complete', sale_id=sale.id)
-            
-            sale.save()
-            
-            # 记录操作日志
-            OperationLog.objects.create(
-                operator=request.user,
-                operation_type='SALE',
-                details=(
-                    f'完成销售单 #{sale.id}，总金额: {sale.final_amount}，'
-                    f'支付方式: {sale.get_payment_method_display()}；来源: sale_complete'
-                ),
-                related_object_id=sale.id,
-                related_content_type=ContentType.objects.get_for_model(Sale)
-            )
+
+            try:
+                with transaction.atomic():
+                    if sale_was_unsettled:
+                        sale_items = list(sale.items.select_related('product'))
+                        for item in sale_items:
+                            if not check_inventory(item.product, item.quantity, sale.warehouse):
+                                available_quantity = _get_available_stock_quantity(item.product, sale.warehouse)
+                                messages.error(
+                                    request,
+                                    f'商品 {item.product.name} 库存不足（当前可用: {available_quantity}，请求数量: {item.quantity}）'
+                                )
+                                raise ValueError('库存不足，无法完成结算')
+
+                        for item in sale_items:
+                            stock_notes = _build_sale_inventory_notes(
+                                source='sale_complete',
+                                intent='sale_complete_unsettled_out',
+                                sale=sale,
+                                product=item.product,
+                                quantity=item.quantity,
+                                user_note='settle_unsettled_sale',
+                            )
+                            success, inventory_obj, stock_result = update_inventory(
+                                product=item.product,
+                                warehouse=sale.warehouse,
+                                quantity=-item.quantity,
+                                transaction_type='OUT',
+                                operator=request.user,
+                                notes=stock_notes
+                            )
+                            if not success:
+                                raise ValueError(stock_result)
+
+                            stock_transaction = stock_result
+                            _create_sale_stock_change_log(
+                                operator=request.user,
+                                sale=sale,
+                                product=item.product,
+                                action='出库',
+                                requested_quantity=item.quantity,
+                                delta_quantity=-item.quantity,
+                                current_quantity=inventory_obj.quantity,
+                                transaction_obj=stock_transaction,
+                                source='sale_complete',
+                            )
+
+                    deposit_before = sale.deposit_amount or Decimal('0.00')
+                    sale.save()
+
+                    remaining_amount = sale.final_amount - deposit_before if sale.final_amount > deposit_before else Decimal('0.00')
+                    if sale_was_unsettled:
+                        details = (
+                            f'未结算销售单结算完成 #{sale.id}，原定金: {deposit_before}，'
+                            f'补收金额: {remaining_amount}，最终金额: {sale.final_amount}，'
+                            f'支付方式: {sale.get_payment_method_display()}；来源: sale_complete'
+                        )
+                    else:
+                        details = (
+                            f'完成销售单 #{sale.id}，总金额: {sale.final_amount}，'
+                            f'支付方式: {sale.get_payment_method_display()}；来源: sale_complete'
+                        )
+
+                    OperationLog.objects.create(
+                        operator=request.user,
+                        operation_type='SALE',
+                        details=details,
+                        related_object_id=sale.id,
+                        related_content_type=ContentType.objects.get_for_model(Sale)
+                    )
+            except ValueError as exc:
+                if '库存不足' not in str(exc):
+                    messages.error(request, f'完成销售失败: {exc}')
+                return redirect('sale_detail', sale_id=sale.id)
+            except Exception as exc:
+                messages.error(request, f'完成销售失败: {exc}')
+                return redirect('sale_detail', sale_id=sale.id)
             
             if is_sales_focus_user(request.user):
-                messages.success(request, '销售单已完成，已进入新建销售页面')
+                if sale_was_unsettled:
+                    messages.success(request, '未结算销售单已完成结算，已进入新建销售页面')
+                else:
+                    messages.success(request, '销售单已完成，已进入新建销售页面')
                 return redirect('sale_create')
 
-            messages.success(request, '销售单已完成')
+            if sale_was_unsettled:
+                messages.success(request, '未结算销售单已完成结算')
+            else:
+                messages.success(request, '销售单已完成')
             return redirect('sale_detail', sale_id=sale.id)
     else:
         form = SaleForm(instance=sale)
@@ -921,37 +1055,109 @@ def sale_complete(request, sale_id):
     return render(request, 'inventory/sale_complete.html', {
         'form': form,
         'sale': sale,
-        'items': sale.items.all()
+        'items': sale.items.all(),
+        'payment_method_choices': Sale.PAYMENT_METHODS,
     })
 
 @login_required
 def sale_cancel(request, sale_id):
-    """软删除销售单视图（仅隐藏，不影响业务数据）"""
+    """删除销售单并回滚相关业务影响。"""
     _ensure_sale_module_access(request.user)
     sale = _get_sale_for_user_or_404(request.user, sale_id)
 
     if _is_sale_deleted(sale):
         messages.warning(request, '销售单已删除，请勿重复操作')
         return redirect('sale_detail', sale_id=sale.id)
+    if _is_sale_abandoned(sale):
+        messages.warning(request, '未结算销售单已放弃，请勿重复操作')
+        return redirect('sale_detail', sale_id=sale.id)
     
     if request.method == 'POST':
         reason = request.POST.get('reason', '')
 
-        with transaction.atomic():
-            # 仅做逻辑删除，不影响库存和交易数据
-            reason_text = reason.strip() if reason else '未填写'
-            sale.status = 'DELETED'
-            sale.save(update_fields=['status'])
-            
-            OperationLog.objects.create(
-                operator=request.user,
-                operation_type='SALE',
-                details=f'删除销售单 #{sale.id}，原因: {reason_text}；来源: sale_cancel',
-                related_object_id=sale.id,
-                related_content_type=ContentType.objects.get_for_model(Sale)
-            )
-        
-        messages.success(request, '销售单已删除（默认列表已隐藏）')
+        try:
+            with transaction.atomic():
+                restored_items = 0
+                sale_was_unsettled = _is_sale_unsettled(sale)
+                if _sale_needs_inventory_revert(sale):
+                    for item in sale.items.select_related('product'):
+                        stock_notes = _build_sale_inventory_notes(
+                            source='sale_cancel',
+                            intent='sale_cancel_restore_in',
+                            sale=sale,
+                            product=item.product,
+                            quantity=item.quantity,
+                            user_note='delete_sale_restore_stock',
+                        )
+                        success, inventory_obj, stock_result = update_inventory(
+                            product=item.product,
+                            warehouse=sale.warehouse,
+                            quantity=item.quantity,
+                            transaction_type='IN',
+                            operator=request.user,
+                            notes=stock_notes
+                        )
+                        if not success:
+                            raise ValueError(stock_result)
+
+                        stock_transaction = stock_result
+                        _create_sale_stock_change_log(
+                            operator=request.user,
+                            sale=sale,
+                            product=item.product,
+                            action='回补',
+                            requested_quantity=item.quantity,
+                            delta_quantity=item.quantity,
+                            current_quantity=inventory_obj.quantity,
+                            transaction_obj=stock_transaction,
+                            source='sale_cancel',
+                        )
+                        restored_items += 1
+
+                reason_text = reason.strip() if reason else '未填写'
+                removed_amount = sale.final_amount or Decimal('0.00')
+                removed_deposit = sale.deposit_amount or Decimal('0.00')
+                if sale_was_unsettled:
+                    sale.status = 'ABANDONED'
+                    # 未结算放弃单保留定金记账口径，仅改变业务状态用于区分“已删除”。
+                    sale.save(update_fields=['status', 'deposit_amount', 'final_amount'])
+                    OperationLog.objects.create(
+                        operator=request.user,
+                        operation_type='SALE',
+                        details=(
+                            f'放弃未结算销售单 #{sale.id}，原因: {reason_text}；'
+                            f'保留定金金额: {removed_deposit}；'
+                            f'来源: sale_cancel'
+                        ),
+                        related_object_id=sale.id,
+                        related_content_type=ContentType.objects.get_for_model(Sale)
+                    )
+                else:
+                    sale.status = 'DELETED'
+                    # 删除已结算单时冲销记账金额。
+                    sale.deposit_amount = Decimal('0.00')
+                    sale.final_amount = Decimal('0.00')
+                    sale.save(update_fields=['status', 'deposit_amount', 'final_amount'])
+                    OperationLog.objects.create(
+                        operator=request.user,
+                        operation_type='SALE',
+                        details=(
+                            f'删除销售单 #{sale.id}，原因: {reason_text}；'
+                            f'回补商品项: {restored_items}；移除金额口径: {removed_amount}；'
+                            f'冲销定金: {removed_deposit}；'
+                            f'来源: sale_cancel'
+                        ),
+                        related_object_id=sale.id,
+                        related_content_type=ContentType.objects.get_for_model(Sale)
+                    )
+        except Exception as exc:
+            messages.error(request, f'删除销售单失败: {exc}')
+            return redirect('sale_detail', sale_id=sale.id)
+
+        if sale_was_unsettled:
+            messages.success(request, '未结算销售单已标记为已放弃，定金保留在销售额中')
+        else:
+            messages.success(request, '销售单已删除，库存与金额统计已回滚')
         return redirect('sale_list')
     
     return render(request, 'inventory/sale_cancel.html', {'sale': sale})
@@ -970,6 +1176,9 @@ def sale_delete_item(request, sale_id, item_id):
     if _is_sale_completed(sale):
         messages.error(request, '已完成的销售单不能修改')
         return redirect('sale_detail', sale_id=sale.id)
+    if _is_sale_abandoned(sale):
+        messages.error(request, '已放弃的销售单不能修改')
+        return redirect('sale_detail', sale_id=sale.id)
 
     if _is_sale_deleted(sale):
         messages.error(request, '已删除的销售单不能修改')
@@ -982,37 +1191,38 @@ def sale_delete_item(request, sale_id, item_id):
     
     try:
         with transaction.atomic():
-            stock_notes = _build_sale_inventory_notes(
-                source='sale_delete_item',
-                intent='sale_delete_item_in',
-                sale=sale,
-                product=item.product,
-                quantity=item.quantity,
-                user_note='delete_item_restore_stock',
-            )
-            success, inventory_obj, stock_result = update_inventory(
-                product=item.product,
-                warehouse=sale.warehouse,
-                quantity=item.quantity,
-                transaction_type='IN',
-                operator=request.user,
-                notes=stock_notes
-            )
-            if not success:
-                raise ValueError(stock_result)
+            if not _is_sale_unsettled(sale):
+                stock_notes = _build_sale_inventory_notes(
+                    source='sale_delete_item',
+                    intent='sale_delete_item_in',
+                    sale=sale,
+                    product=item.product,
+                    quantity=item.quantity,
+                    user_note='delete_item_restore_stock',
+                )
+                success, inventory_obj, stock_result = update_inventory(
+                    product=item.product,
+                    warehouse=sale.warehouse,
+                    quantity=item.quantity,
+                    transaction_type='IN',
+                    operator=request.user,
+                    notes=stock_notes
+                )
+                if not success:
+                    raise ValueError(stock_result)
 
-            stock_transaction = stock_result
-            _create_sale_stock_change_log(
-                operator=request.user,
-                sale=sale,
-                product=item.product,
-                action='回补',
-                requested_quantity=item.quantity,
-                delta_quantity=item.quantity,
-                current_quantity=inventory_obj.quantity,
-                transaction_obj=stock_transaction,
-                source='sale_delete_item',
-            )
+                stock_transaction = stock_result
+                _create_sale_stock_change_log(
+                    operator=request.user,
+                    sale=sale,
+                    product=item.product,
+                    action='回补',
+                    requested_quantity=item.quantity,
+                    delta_quantity=item.quantity,
+                    current_quantity=inventory_obj.quantity,
+                    transaction_obj=stock_transaction,
+                    source='sale_delete_item',
+                )
 
             # 删除商品并更新销售单总额
             item.delete()

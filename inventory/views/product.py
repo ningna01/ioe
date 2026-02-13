@@ -13,6 +13,7 @@ import io
 import base64
 import uuid
 import os
+from openpyxl import Workbook
 from PIL import Image
 from datetime import datetime
 
@@ -25,7 +26,7 @@ from inventory.forms import (
     ProductForm, CategoryForm, ProductBatchForm,
     ProductImageFormSet, ProductBulkForm, ProductImportForm
 )
-from inventory.utils import generate_thumbnail, validate_csv
+from inventory.utils import generate_thumbnail
 from inventory.services import product_service
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 
@@ -718,22 +719,17 @@ def product_import(request):
     if request.method == 'POST':
         form = ProductImportForm(request.POST, request.FILES)
         if form.is_valid():
-            csv_file = request.FILES['csv_file']
-            
-            # 验证CSV文件
-            validation_result = validate_csv(csv_file, 
-                                            required_headers=['name', 'retail_price'],
-                                            expected_headers=['name', 'category', 'retail_price', 
-                                                            'wholesale_price', 'cost_price', 
-                                                            'barcode', 'sku', 'specification'])
-            
-            if not validation_result['valid']:
-                messages.error(request, f"CSV文件验证失败: {validation_result['errors']}")
-                return render(request, 'inventory/product/product_import.html', {'form': form})
-            
-            # 处理CSV文件
+            upload_file = request.FILES['csv_file']
+            file_name = (upload_file.name or '').lower()
+
             try:
-                result = product_service.import_products_from_csv(csv_file, request.user)
+                if file_name.endswith('.csv'):
+                    result = product_service.import_products_from_csv(upload_file, request.user)
+                elif file_name.endswith('.xlsx'):
+                    result = product_service.import_products_from_excel(upload_file, request.user)
+                else:
+                    messages.error(request, "不支持的文件格式，请上传 CSV 或 XLSX 文件")
+                    return render(request, 'inventory/product_import.html', {'form': form})
 
                 OperationLog.objects.create(
                     operator=request.user,
@@ -771,15 +767,28 @@ def product_import(request):
                     related_content_type=ContentType.objects.get_for_model(request.user.__class__),
                 )
                 messages.error(request, f"导入过程中发生错误: {str(e)}")
-                return render(request, 'inventory/product/product_import.html', {'form': form})
+                return render(request, 'inventory/product_import.html', {'form': form})
     else:
         form = ProductImportForm()
     
     # 生成样例CSV数据
     sample_data = [
-        ['name', 'category', 'retail_price', 'wholesale_price', 'cost_price', 'barcode', 'sku', 'specification'],
-        ['测试商品1', '水果', '10.00', '8.00', '6.00', '123456789', 'SKU001', '500g'],
-        ['测试商品2', '蔬菜', '5.50', '4.50', '3.00', '987654321', 'SKU002', '1kg'],
+        [
+            'barcode', 'name', 'category', 'color', 'size',
+            'description', 'price', 'cost', 'wholesale_price',
+            'specification', 'manufacturer', 'initial_stock',
+            'warning_level', 'is_active'
+        ],
+        [
+            '6900000000012', '测试商品1', '水果', 'green', 'L',
+            '门店手动建档同款字段示例', '10.00', '6.00', '8.00',
+            '500g', '示例工厂A', '120', '20', 'true'
+        ],
+        [
+            '', '测试商品2', '蔬菜', '', '',
+            '空条码时系统自动生成', '5.50', '', '',
+            '1kg', '示例工厂B', '15', '5', 'on'
+        ],
     ]
     
     # 创建内存中的CSV
@@ -795,7 +804,7 @@ def product_import(request):
         'sample_csv': sample_csv_content,
     }
     
-    return render(request, 'inventory/product/product_import.html', context)
+    return render(request, 'inventory/product_import.html', context)
 
 
 @login_required
@@ -818,28 +827,48 @@ def product_export(request):
     elif status == 'inactive':
         products = products.filter(is_active=False)
     
-    # 创建CSV响应
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="products_export.csv"'
-    
-    # 写入CSV
-    writer = csv.writer(response)
-    writer.writerow(['ID', '名称', '分类', '零售价', '批发价', '成本价', '条码', 'SKU', '规格', '状态'])
-    
-    for product in products:
-        writer.writerow([
+    export_format = (request.GET.get('format', 'csv') or 'csv').strip().lower()
+    headers = ['ID', '名称', '分类', '零售价', '批发价', '成本价', '条码', '规格', '状态', '更新时间']
+    rows = [
+        [
             product.id,
             product.name,
             product.category.name if product.category else '',
-            product.price,  # 零售价
-            product.wholesale_price or '',  # 批发价
-            product.cost,  # 成本价
+            product.price,
+            product.wholesale_price or '',
+            product.cost,
             product.barcode or '',
-            product.sku or '',
             product.specification or '',
             '启用' if product.is_active else '禁用',
-        ])
-    
+            product.updated_at.strftime('%Y-%m-%d %H:%M:%S') if product.updated_at else '',
+        ]
+        for product in products
+    ]
+
+    if export_format in ['xlsx', 'excel']:
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = '商品导出'
+        worksheet.append(headers)
+        for row in rows:
+            worksheet.append(row)
+
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="products_export.xlsx"'
+        return response
+
+    response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
+    response['Content-Disposition'] = 'attachment; filename="products_export.csv"'
+    writer = csv.writer(response)
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow(row)
     return response
 
 # 添加别名函数以兼容旧的导入

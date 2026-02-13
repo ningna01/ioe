@@ -82,6 +82,32 @@
                 </div>
             </div>
         </div>
+
+        <div class="col-md-6 col-lg-3 mb-4">
+            <div class="report-link-card">
+                <div class="card-body">
+                    <div class="mb-2 text-info"><i class="bi bi-box-seam fs-5"></i></div>
+                    <h5 class="card-title">入库报表</h5>
+                    <p class="card-text">查看每日入库商品清单、入库总额与当前库存零售总值</p>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="{% url 'stock_in_report' %}?warehouse={{ selected_warehouse }}" class="btn btn-primary">查看报表</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-3 mb-4">
+            <div class="report-link-card">
+                <div class="card-body">
+                    <div class="mb-2 text-secondary"><i class="bi bi-database-gear fs-5"></i></div>
+                    <h5 class="card-title">数据工具</h5>
+                    <p class="card-text">商品/库存的 CSV 与 Excel 导入导出、快速批量入库</p>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="{% url 'data_tools_report' %}?warehouse={{ selected_warehouse }}" class="btn btn-primary">打开工具</a>
+                </div>
+            </div>
+        </div>
         
     </div>
 </div>

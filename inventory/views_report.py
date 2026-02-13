@@ -71,6 +71,18 @@ def _resolve_profit_sale_type_filter(raw_value):
     # 利润报表默认按零售口径，避免零售与批发混算造成误导。
     return 'retail', 'retail'
 
+
+def _today_report_initial(extra_initial=None):
+    today = timezone.localdate()
+    initial = {
+        'start_date': today,
+        'end_date': today,
+        'date_range_preset': 'today',
+    }
+    if extra_initial:
+        initial.update(extra_initial)
+    return initial
+
 @login_required
 @log_view_access('OTHER')
 @permission_required('view_reports')
@@ -125,11 +137,9 @@ def sales_trend_report(request):
                 _append_scope_context(context, scope),
             )
     else:
-        form = DateRangeForm()
-        
-        # Get default data for last 30 days
-        start_date = timezone.now().date() - timedelta(days=30)
-        end_date = timezone.now().date()
+        form = DateRangeForm(initial=_today_report_initial({'period': 'day'}))
+        start_date = timezone.localdate()
+        end_date = start_date
 
         sale_type, sale_type_filter = _resolve_sale_type_filter(
             request.GET.get('sale_type', '')
@@ -217,9 +227,9 @@ def top_products_report(request):
                 _append_scope_context(context, scope),
             )
     else:
-        form = TopProductsForm()
-        start_date = timezone.now().date() - timedelta(days=30)
-        end_date = timezone.now().date()
+        form = TopProductsForm(initial=_today_report_initial({'limit': 10}))
+        start_date = timezone.localdate()
+        end_date = start_date
         limit = 10
 
         sale_type, sale_type_filter = _resolve_sale_type_filter(
@@ -285,11 +295,9 @@ def inventory_turnover_report(request):
                 _append_scope_context(context, scope),
             )
     else:
-        form = InventoryTurnoverForm()
-        
-        # Get default data for last 30 days
-        start_date = timezone.now().date() - timedelta(days=30)
-        end_date = timezone.now().date()
+        form = InventoryTurnoverForm(initial=_today_report_initial())
+        start_date = timezone.localdate()
+        end_date = start_date
         
         # Get inventory turnover data
         inventory_data = ReportService.get_inventory_turnover_rate(
@@ -379,9 +387,9 @@ def profit_report(request):
                 _append_scope_context(context, scope),
             )
     else:
-        form = DateRangeForm()
-        start_date = timezone.now().date() - timedelta(days=30)
-        end_date = timezone.now().date()
+        form = DateRangeForm(initial=_today_report_initial({'period': 'day'}))
+        start_date = timezone.localdate()
+        end_date = start_date
         period = 'day'
 
         sale_type, sale_type_filter = _resolve_profit_sale_type_filter(
@@ -563,11 +571,9 @@ def operation_log_report(request):
                 'end_date': end_date
             })
     else:
-        form = DateRangeForm()
-        
-        # 默认显示最近7天的日志
-        start_date = timezone.now().date() - timedelta(days=7)
-        end_date = timezone.now().date()
+        form = DateRangeForm(initial=_today_report_initial())
+        start_date = timezone.localdate()
+        end_date = start_date
         
         # 获取操作日志数据
         log_data = ReportService.get_operation_logs(
@@ -581,3 +587,86 @@ def operation_log_report(request):
             'start_date': start_date,
             'end_date': end_date
         }) 
+
+
+@login_required
+@log_view_access('OTHER')
+@permission_required('view_reports')
+def stock_in_report(request):
+    """入库报表：按零售价统计入库金额，并展示当前仓库库存总值。"""
+    scope = _resolve_report_scope(request)
+    warehouse_ids = scope['warehouse_ids']
+
+    if request.method == 'POST':
+        form = DateRangeForm(request.POST)
+        if form.is_valid():
+            start_date = form.cleaned_data['start_date']
+            end_date = form.cleaned_data['end_date']
+            report_data = ReportService.get_stock_in_report(
+                start_date=start_date,
+                end_date=end_date,
+                warehouse_ids=warehouse_ids,
+            )
+            context = {
+                'form': form,
+                'start_date': start_date,
+                'end_date': end_date,
+                'report_data': report_data,
+            }
+            return render(
+                request,
+                'inventory/reports/stock_in.html',
+                _append_scope_context(context, scope),
+            )
+
+    form = DateRangeForm(initial=_today_report_initial())
+    start_date = timezone.localdate()
+    end_date = start_date
+    report_data = ReportService.get_stock_in_report(
+        start_date=start_date,
+        end_date=end_date,
+        warehouse_ids=warehouse_ids,
+    )
+    context = {
+        'form': form,
+        'start_date': start_date,
+        'end_date': end_date,
+        'report_data': report_data,
+    }
+    return render(
+        request,
+        'inventory/reports/stock_in.html',
+        _append_scope_context(context, scope),
+    )
+
+
+@login_required
+@log_view_access('OTHER')
+@permission_required('view_reports')
+def data_tools_report(request):
+    """数据导入导出工具页。"""
+    scope = _resolve_report_scope(request)
+
+    can_manage_products = WarehouseScopeService.get_accessible_warehouses(
+        request.user,
+        required_permission=UserWarehouseAccess.PERMISSION_PRODUCT_MANAGE,
+    ).exists()
+    can_stock_in = WarehouseScopeService.get_accessible_warehouses(
+        request.user,
+        required_permission=UserWarehouseAccess.PERMISSION_STOCK_IN,
+    ).exists()
+    can_view_inventory = WarehouseScopeService.get_accessible_warehouses(
+        request.user,
+        required_permission=UserWarehouseAccess.PERMISSION_VIEW,
+    ).exists()
+
+    context = {
+        'can_manage_products': can_manage_products,
+        'can_stock_in': can_stock_in,
+        'can_view_inventory': can_view_inventory,
+    }
+    return render(
+        request,
+        'inventory/reports/data_tools.html',
+        _append_scope_context(context, scope),
+    )

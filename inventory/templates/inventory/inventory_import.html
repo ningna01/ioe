@@ -1,0 +1,81 @@
+{% extends 'inventory/base.html' %}
+
+{% block title %}批量入库导入 - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+                <div>
+                    <h2 class="card-title mb-0">批量入库导入</h2>
+                    <p class="text-muted mb-0">通过 CSV / XLSX 文件快速完成入库</p>
+                </div>
+                <a href="{% url 'inventory_list' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left me-1"></i>返回库存列表
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-7 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">上传导入文件</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="import_file" class="form-label">导入文件</label>
+                        <input
+                            type="file"
+                            class="form-control"
+                            id="import_file"
+                            name="import_file"
+                            accept=".csv,.xlsx"
+                            required
+                        >
+                        <div class="form-text">
+                            必填列：`barcode`, `quantity`；可选列：`warehouse_code`, `notes`。
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-upload me-1"></i>开始批量入库
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">导入规则</h5>
+            </div>
+            <div class="card-body">
+                <ul class="mb-3">
+                    <li>`barcode`：商品条码，必须存在于系统商品档案。</li>
+                    <li>`quantity`：入库数量，必须为正整数。</li>
+                    <li>`warehouse_code`：仓库编码，留空则使用默认仓。</li>
+                    <li>`notes`：入库备注，可选。</li>
+                </ul>
+                <div class="small text-muted mb-2">示例：</div>
+                <pre class="bg-light border rounded p-3 small mb-0">barcode,quantity,warehouse_code,notes
+1234567890,20,{{ default_warehouse_code|default:'MAIN_WH' }},补货
+ABC001,5,,临时补货</pre>
+                {% if warehouses %}
+                <div class="small text-muted mt-3">可用仓库编码：</div>
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                    {% for wh in warehouses %}
+                    <span class="badge bg-light text-dark border">{{ wh.code }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -59,6 +59,8 @@ urlpatterns = [
     
     path('inventory/create/', inventory_views.inventory_transaction_create, name='inventory_create'),
     path('inventory/in/', inventory_views.inventory_in, name='inventory_in'),
+    path('inventory/import/', inventory_views.inventory_import, name='inventory_import'),
+    path('inventory/export/', inventory_views.inventory_export, name='inventory_export'),
     path('inventory/out/', inventory_views.inventory_out, name='inventory_out'),
     path('inventory/adjust/', inventory_views.inventory_adjust, name='inventory_adjust'),
     path('inventory/<int:inventory_id>/warning-level/', inventory_views.inventory_update_warning_level, name='inventory_update_warning_level'),
@@ -119,6 +121,8 @@ urlpatterns = [
     path('reports/top-products/', views_report.top_products_report, name='top_products_report'),
     path('reports/inventory-turnover/', views_report.inventory_turnover_report, name='inventory_turnover_report'),
     path('reports/profit/', views_report.profit_report, name='profit_report'),
+    path('reports/stock-in/', views_report.stock_in_report, name='stock_in_report'),
+    path('reports/data-tools/', views_report.data_tools_report, name='data_tools_report'),
     # path('reports/member-analysis/', views_report.member_analysis_report, name='member_analysis_report'),  # 已禁用
     # path('reports/birthday-members/', sales_views.birthday_members_report, name='birthday_members_report'),  # 已禁用
     # path('reports/recharge/', views_report.recharge_report, name='recharge_report'),  # 已禁用

@@ -2,10 +2,23 @@
 
 {% block title %}商品管理 - {{ block.super }}{% endblock %}
 
+{% block extra_head %}
+<style>
+    .export-toolbar-card,
+    .export-toolbar-card .card-body {
+        overflow: visible !important;
+    }
+
+    .export-toolbar-card .dropdown-menu {
+        z-index: 1085;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row mb-4">
     <div class="col-12">
-        <div class="card">
+        <div class="card export-toolbar-card">
             <div class="card-body">
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
                     <div>
@@ -13,6 +26,26 @@
                         <p class="text-muted mb-md-0">管理所有商品信息</p>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
+                        <a href="{% url 'product_import' %}" class="btn btn-outline-primary">
+                            <i class="bi bi-file-earmark-arrow-up me-1"></i> 批量导入
+                        </a>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-download me-1"></i> 导出
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <a class="dropdown-item" href="{% url 'product_export' %}?format=csv{% if selected_category %}&category={{ selected_category }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}">
+                                        导出 CSV
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="{% url 'product_export' %}?format=xlsx{% if selected_category %}&category={{ selected_category }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}">
+                                        导出 Excel
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
                         <a href="{% url 'barcode_product_create' %}" class="btn btn-success">
                             <i class="bi bi-upc-scan me-1"></i> 扫码添加商品
                         </a>

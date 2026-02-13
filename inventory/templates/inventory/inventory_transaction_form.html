@@ -19,13 +19,32 @@
                     {% csrf_token %}
                     {% for field in form %}
                     <div class="mb-3">
-                        <label for="{{ field.id_for_label }}" class="form-label">
+                        <label for="{% if field.name == 'product' %}inventory-product-picker{% else %}{{ field.id_for_label }}{% endif %}" class="form-label">
                             {{ field.label }}
                             {% if field.field.required %}<span class="text-danger">*</span>{% endif %}
                         </label>
+                        {% if field.name == 'product' %}
+                        <div class="position-relative">
+                            <input
+                                type="search"
+                                id="inventory-product-picker"
+                                class="form-control"
+                                placeholder="输入商品名称或条码并选择商品"
+                                autocomplete="off"
+                            >
+                            <div
+                                id="inventory-product-result-list"
+                                class="list-group position-absolute w-100 shadow-sm d-none"
+                                style="z-index: 1050; max-height: 280px; overflow-y: auto;"
+                            ></div>
+                            {{ field }}
+                        </div>
+                        <div class="form-text">输入关键字后，从候选列表中选择商品</div>
+                        {% elif field.help_text %}
                         {{ field }}
-                        {% if field.help_text %}
                         <div class="form-text">{{ field.help_text }}</div>
+                        {% else %}
+                        {{ field }}
                         {% endif %}
                         {% if field.errors %}
                         <div class="text-danger small mt-1">
@@ -45,4 +64,137 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const productSelect = document.getElementById('id_product');
+    const productPicker = document.getElementById('inventory-product-picker');
+    const resultList = document.getElementById('inventory-product-result-list');
+    if (!productSelect || !productPicker || !resultList) {
+        return;
+    }
+
+    productSelect.classList.add('d-none');
+    productSelect.setAttribute('tabindex', '-1');
+    productSelect.setAttribute('aria-hidden', 'true');
+
+    const allProducts = Array.from(productSelect.options || [])
+        .filter(option => option.value)
+        .map(option => ({
+            id: option.value,
+            label: option.text,
+            search: option.text.toLowerCase(),
+        }));
+
+    const clearResults = function() {
+        resultList.innerHTML = '';
+        resultList.classList.add('d-none');
+    };
+
+    const renderResults = function(keyword) {
+        const normalizedKeyword = (keyword || '').trim().toLowerCase();
+        resultList.innerHTML = '';
+        if (!normalizedKeyword) {
+            resultList.classList.add('d-none');
+            return;
+        }
+
+        const matchedProducts = allProducts
+            .filter(product => product.search.includes(normalizedKeyword))
+            .slice(0, 20);
+
+        if (!matchedProducts.length) {
+            const emptyItem = document.createElement('div');
+            emptyItem.className = 'list-group-item text-muted';
+            emptyItem.textContent = '未找到匹配商品';
+            resultList.appendChild(emptyItem);
+            resultList.classList.remove('d-none');
+            return;
+        }
+
+        matchedProducts.forEach(product => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'list-group-item list-group-item-action';
+            button.textContent = product.label;
+            button.dataset.productId = product.id;
+            button.dataset.productLabel = product.label;
+            resultList.appendChild(button);
+        });
+        resultList.classList.remove('d-none');
+    };
+
+    const selectProduct = function(productId, productLabel) {
+        productSelect.value = productId;
+        productPicker.value = productLabel;
+        productPicker.classList.remove('is-invalid');
+        const validationMsg = document.getElementById('inventory-product-validation-msg');
+        if (validationMsg) {
+            validationMsg.remove();
+        }
+        clearResults();
+    };
+
+    productPicker.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+        }
+    });
+
+    productPicker.addEventListener('input', function() {
+        productSelect.value = '';
+        renderResults(this.value);
+    });
+
+    productPicker.addEventListener('focus', function() {
+        if ((this.value || '').trim()) {
+            renderResults(this.value);
+        }
+    });
+
+    resultList.addEventListener('click', function(event) {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+        if (!target.dataset.productId) {
+            return;
+        }
+        selectProduct(target.dataset.productId, target.dataset.productLabel || '');
+    });
+
+    document.addEventListener('click', function(event) {
+        if (!resultList.contains(event.target) && event.target !== productPicker) {
+            clearResults();
+        }
+    });
+
+    const selectedOption = productSelect.options[productSelect.selectedIndex];
+    if (selectedOption && selectedOption.value) {
+        productPicker.value = selectedOption.text;
+    }
+
+    const formElement = productPicker.closest('form');
+    if (!formElement) {
+        return;
+    }
+    formElement.addEventListener('submit', function(event) {
+        if (productSelect.value) {
+            return;
+        }
+        event.preventDefault();
+        productPicker.focus();
+        productPicker.classList.add('is-invalid');
+        if (!document.getElementById('inventory-product-validation-msg')) {
+            const feedback = document.createElement('div');
+            feedback.id = 'inventory-product-validation-msg';
+            feedback.className = 'invalid-feedback d-block';
+            feedback.textContent = '请选择一个有效的商品';
+            productPicker.insertAdjacentElement('afterend', feedback);
+        }
+    });
+});
+</script>
 {% endblock %}

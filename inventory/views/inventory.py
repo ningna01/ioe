@@ -3,11 +3,15 @@
 """
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.contrib import messages
 from django.db.models import Q, Sum, F
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
+from openpyxl import Workbook, load_workbook
+
+import csv
+import io
 
 from inventory.models import (
     Product, InventoryTransaction,
@@ -101,6 +105,60 @@ def _prefill_inventory_form_from_query(request, form):
             wid = None
         if wid and form.fields['warehouse'].queryset.filter(id=wid).exists():
             form.fields['warehouse'].initial = wid
+
+
+def _normalize_upload_cell(value):
+    if value is None:
+        return ''
+    return str(value).strip()
+
+
+def _read_tabular_upload(uploaded_file):
+    """
+    读取 CSV/XLSX 文件并返回规范化数据：
+    - headers: 小写列名列表
+    - rows: 每行 dict
+    """
+    file_name = (uploaded_file.name or '').lower()
+    if file_name.endswith('.csv'):
+        raw_content = uploaded_file.read()
+        try:
+            decoded_content = raw_content.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            decoded_content = raw_content.decode('gb18030')
+        reader = csv.DictReader(io.StringIO(decoded_content))
+        headers = [(_normalize_upload_cell(field)).lower() for field in (reader.fieldnames or [])]
+        rows = []
+        for raw_row in reader:
+            normalized_row = {
+                (key or '').strip().lower(): _normalize_upload_cell(value)
+                for key, value in (raw_row or {}).items()
+            }
+            rows.append(normalized_row)
+        return headers, rows
+
+    if file_name.endswith('.xlsx'):
+        workbook = load_workbook(uploaded_file, data_only=True, read_only=True)
+        worksheet = workbook.active
+        row_iter = worksheet.iter_rows(values_only=True)
+        try:
+            header_row = next(row_iter)
+        except StopIteration as exc:
+            raise ValueError('上传文件为空') from exc
+
+        headers = [(_normalize_upload_cell(cell)).lower() for cell in (header_row or [])]
+        rows = []
+        for row_values in row_iter:
+            row_dict = {}
+            for index, header in enumerate(headers):
+                if not header:
+                    continue
+                cell_value = row_values[index] if row_values and index < len(row_values) else ''
+                row_dict[header] = _normalize_upload_cell(cell_value)
+            rows.append(row_dict)
+        return headers, rows
+
+    raise ValueError('不支持的文件格式，请上传 CSV 或 XLSX 文件')
 
 
 def _create_inventory_operation_log(
@@ -374,6 +432,212 @@ def inventory_transaction_list(request):
         'date_from': date_from,
         'date_to': date_to,
         'transaction_types': dict(InventoryTransaction.TRANSACTION_TYPES)
+    })
+
+
+@login_required
+def inventory_export(request):
+    """导出库存快照（CSV / XLSX）。"""
+    _ensure_inventory_read_access(request.user)
+    export_format = (request.GET.get('format', 'csv') or 'csv').strip().lower()
+    selected_warehouse_token = (request.GET.get('warehouse') or '').strip()
+
+    accessible_warehouses = WarehouseScopeService.get_accessible_warehouses(
+        request.user,
+        required_permission=UserWarehouseAccess.PERMISSION_VIEW,
+    )
+
+    inventories = WarehouseInventory.objects.select_related(
+        'product', 'product__category', 'warehouse'
+    ).filter(warehouse_id__in=accessible_warehouses.values_list('id', flat=True))
+
+    if selected_warehouse_token and selected_warehouse_token != 'all':
+        if selected_warehouse_token.isdigit():
+            inventories = inventories.filter(warehouse_id=int(selected_warehouse_token))
+        else:
+            inventories = inventories.filter(warehouse__code=selected_warehouse_token)
+
+    rows = [
+        [
+            item.warehouse.name,
+            item.warehouse.code,
+            item.product.name,
+            item.product.barcode,
+            item.product.category.name if item.product.category else '',
+            item.quantity,
+            item.warning_level,
+            item.product.price,
+            item.product.cost,
+            item.updated_at.strftime('%Y-%m-%d %H:%M:%S') if item.updated_at else '',
+        ]
+        for item in inventories.order_by('warehouse__name', 'product__name')
+    ]
+    headers = ['仓库', '仓库编码', '商品名称', '商品条码', '分类', '库存数量', '预警库存', '零售价', '成本价', '更新时间']
+
+    if export_format in ['xlsx', 'excel']:
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = '库存快照'
+        worksheet.append(headers)
+        for row in rows:
+            worksheet.append(row)
+
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="inventory_snapshot.xlsx"'
+        return response
+
+    response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
+    response['Content-Disposition'] = 'attachment; filename="inventory_snapshot.csv"'
+    writer = csv.writer(response)
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow(row)
+    return response
+
+
+@login_required
+def inventory_import(request):
+    """批量入库导入（CSV / XLSX）。"""
+    _ensure_inventory_write_access(
+        request.user,
+        UserWarehouseAccess.PERMISSION_STOCK_IN,
+        '您无权执行入库操作',
+    )
+
+    accessible_warehouses = WarehouseScopeService.get_accessible_warehouses(
+        request.user,
+        required_permission=UserWarehouseAccess.PERMISSION_STOCK_IN,
+    )
+    default_warehouse = WarehouseScopeService.get_default_warehouse(request.user)
+    if default_warehouse and not accessible_warehouses.filter(id=default_warehouse.id).exists():
+        default_warehouse = accessible_warehouses.first()
+
+    if request.method == 'POST':
+        upload_file = request.FILES.get('import_file')
+        if not upload_file:
+            messages.error(request, '请先选择需要导入的 CSV 或 XLSX 文件')
+            return render(request, 'inventory/inventory_import.html', {
+                'warehouses': accessible_warehouses,
+                'default_warehouse_code': default_warehouse.code if default_warehouse else '',
+            })
+
+        try:
+            headers, rows = _read_tabular_upload(upload_file)
+        except Exception as exc:
+            messages.error(request, f'文件解析失败: {exc}')
+            return render(request, 'inventory/inventory_import.html', {
+                'warehouses': accessible_warehouses,
+                'default_warehouse_code': default_warehouse.code if default_warehouse else '',
+            })
+
+        required_headers = {'barcode', 'quantity'}
+        if not required_headers.issubset(set(headers)):
+            messages.error(request, '导入文件缺少必要列：barcode, quantity')
+            return render(request, 'inventory/inventory_import.html', {
+                'warehouses': accessible_warehouses,
+                'default_warehouse_code': default_warehouse.code if default_warehouse else '',
+            })
+
+        success_count = 0
+        failed_count = 0
+        failed_rows = []
+
+        for row_index, row in enumerate(rows, start=2):
+            barcode = _normalize_upload_cell(row.get('barcode'))
+            quantity_raw = _normalize_upload_cell(row.get('quantity'))
+            warehouse_code = _normalize_upload_cell(row.get('warehouse_code') or row.get('warehouse'))
+            user_note = _normalize_upload_cell(row.get('notes') or row.get('remark'))
+
+            if not barcode:
+                failed_count += 1
+                failed_rows.append((row_index, 'barcode 不能为空'))
+                continue
+
+            try:
+                quantity = int(float(quantity_raw))
+            except (TypeError, ValueError):
+                failed_count += 1
+                failed_rows.append((row_index, 'quantity 必须为正整数'))
+                continue
+
+            if quantity <= 0:
+                failed_count += 1
+                failed_rows.append((row_index, 'quantity 必须大于 0'))
+                continue
+
+            product = Product.objects.filter(barcode=barcode).first()
+            if product is None:
+                failed_count += 1
+                failed_rows.append((row_index, f'未找到条码为 {barcode} 的商品'))
+                continue
+
+            target_warehouse = default_warehouse
+            if warehouse_code:
+                target_warehouse = accessible_warehouses.filter(code=warehouse_code).first()
+                if target_warehouse is None:
+                    failed_count += 1
+                    failed_rows.append((row_index, f'仓库编码 {warehouse_code} 不存在或无权限'))
+                    continue
+
+            if target_warehouse is None:
+                failed_count += 1
+                failed_rows.append((row_index, '当前用户无可用仓库，请补充 warehouse_code'))
+                continue
+
+            notes = _build_inventory_notes(
+                source='inventory_import',
+                intent='bulk_in',
+                user_notes=user_note,
+                extra_context={'row': row_index},
+            )
+            success, inventory_obj, result = update_inventory(
+                product=product,
+                warehouse=target_warehouse,
+                quantity=quantity,
+                transaction_type='IN',
+                operator=request.user,
+                notes=notes,
+            )
+            if not success:
+                failed_count += 1
+                failed_rows.append((row_index, str(result)))
+                continue
+
+            transaction_obj = result
+            _create_inventory_operation_log(
+                operator=request.user,
+                action='批量入库',
+                product=product,
+                warehouse=target_warehouse,
+                requested_quantity=quantity,
+                delta_quantity=quantity,
+                current_quantity=inventory_obj.quantity,
+                transaction=transaction_obj,
+                source='inventory_import',
+            )
+            success_count += 1
+
+        if success_count:
+            messages.success(request, f'批量入库完成：成功 {success_count} 条，失败 {failed_count} 条')
+        else:
+            messages.warning(request, f'批量入库未写入数据：失败 {failed_count} 条')
+
+        for row_no, reason in failed_rows[:8]:
+            messages.warning(request, f'第 {row_no} 行失败：{reason}')
+        if len(failed_rows) > 8:
+            messages.warning(request, f'其余 {len(failed_rows) - 8} 条失败记录未展开显示')
+
+        return redirect('inventory_list')
+
+    return render(request, 'inventory/inventory_import.html', {
+        'warehouses': accessible_warehouses,
+        'default_warehouse_code': default_warehouse.code if default_warehouse else '',
     })
 
 

@@ -6,107 +6,96 @@
 {% block head %}
 <!-- 版本更新标记：确认模板加载 -->
 <style>
-    /* 收银台专用样式 */
     .cashier-container {
-        display: flex;
-        width: 100%;
-        height: calc(100vh - 145px); /* 减去导航栏和页脚高度 */
-        margin: -1.5rem 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 16px;
+        align-items: start;
+    }
+
+    .left-area {
+        background-color: #fff;
+        border: 1px solid #e9ecef;
+        border-radius: var(--border-radius);
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+        min-width: 0;
         overflow: hidden;
     }
-    
-    /* 左侧区域 - 占据67%宽度 */
-    .left-area {
-        width: 67%;
-        display: flex;
-        flex-direction: column;
-        background-color: white;
-        border-right: 1px solid #dee2e6;
-        height: 100%;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
-    }
-    
-    /* 右侧区域 - 占据33%宽度 */
+
     .right-area {
-        width: 33%;
+        position: sticky;
+        top: 1rem;
         display: flex;
         flex-direction: column;
-        background-color: #f8f9fa;
-        height: 100%;
-        padding: 15px;
+        gap: 12px;
     }
-    
-    /* 收银台标题 */
+
     .cashier-header {
         background-color: var(--primary-color);
-        color: white;
+        color: #fff;
         padding: 15px 20px;
         font-size: 20px;
-        font-weight: bold;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        font-weight: 700;
         display: flex;
         align-items: center;
     }
-    
+
     .cashier-header i {
         margin-right: 10px;
         font-size: 24px;
     }
-    
-    /* 商品搜索区域 */
+
     .product-search-area {
         background-color: #f8f9fa;
         border-bottom: 1px solid #dee2e6;
         padding: 15px 20px;
     }
-    
+
     .product-search-area .small {
         color: var(--primary-color);
         opacity: 0.7;
     }
-    
-    /* 商品列表区域 */
+
     .product-list-container {
-        flex: 1;
-        overflow-y: auto;
         padding: 15px;
         background-color: #fff;
+        overflow-x: auto;
     }
-    
+
     .product-table {
         width: 100%;
+        min-width: 760px;
         border-collapse: collapse;
         border-radius: var(--border-radius);
         overflow: hidden;
         box-shadow: 0 0 5px rgba(0, 0, 0, 0.05);
     }
-    
+
     .product-table th {
         background-color: var(--primary-color);
-        color: white;
+        color: #fff;
         padding: 12px 15px;
         text-align: left;
         border-bottom: 2px solid rgba(255, 255, 255, 0.1);
         font-weight: 500;
     }
-    
+
     .product-table td {
         padding: 12px 15px;
         border-bottom: 1px solid #f0f0f0;
         vertical-align: middle;
     }
-    
+
     .product-table tr:hover {
         background-color: rgba(52, 152, 219, 0.05);
     }
-    
-    /* 数量控制器 */
+
     .quantity-control {
         display: flex;
         align-items: center;
         width: 120px;
     }
-    
+
     .quantity-control button {
         width: 30px;
         height: 30px;
@@ -117,7 +106,7 @@
         border: 1px solid #ced4da;
         background-color: #f8f9fa;
     }
-    
+
     .quantity-control input {
         width: 50px;
         text-align: center;
@@ -125,115 +114,136 @@
         height: 30px;
         margin: 0 5px;
     }
-    
-    /* 订单汇总区域 */
-    .order-summary {
-        background-color: #f8f9fa;
-        border-top: 1px solid #dee2e6;
-        padding: 20px;
-        border-bottom-left-radius: var(--border-radius);
-    }
-    
-    .summary-row {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 12px;
-        padding-bottom: 8px;
-        border-bottom: 1px dashed #e9ecef;
-    }
-    
-    .summary-row:last-child {
-        border-bottom: none;
-        margin-bottom: 15px;
-    }
-    
-    .summary-label {
-        font-weight: 600;
-        color: var(--primary-color);
-    }
-    
-    .summary-value {
-        font-weight: 700;
-        color: #343a40;
-    }
-    
-    .checkout-btn {
-        width: 100%;
-        padding: 15px;
-        margin-top: 20px;
-        font-size: 18px;
-        font-weight: 600;
-        background-color: var(--success-color);
-        border-color: var(--success-color);
-        border-radius: 5px;
-        transition: all 0.3s;
-    }
-    
-    .checkout-btn:hover {
-        background-color: #27ae60;
-        border-color: #27ae60;
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(46, 204, 113, 0.3);
-    }
-    
-    /* 收银员信息 */
+
     .cashier-info {
         text-align: right;
         color: #6c757d;
-        margin-bottom: 15px;
+        font-size: 14px;
     }
-    
 
-    .payment-section {
-        background-color: white;
+    .payment-section,
+    .order-summary {
+        background-color: #fff;
+        border: 1px solid #e9ecef;
         border-radius: var(--border-radius);
-        padding: 15px;
+        padding: 16px;
         box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
     }
-    
+
     .payment-title {
         color: var(--primary-color);
         font-weight: 600;
     }
-    
+
     .payment-methods {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        grid-template-rows: repeat(3, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
     }
-    
+
     .payment-btn {
-        height: 80px;
+        height: 72px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         border: 1px solid #dee2e6;
-        border-radius: 5px;
-        background-color: white;
+        border-radius: 8px;
+        background-color: #fff;
         transition: all 0.2s;
+        font-size: 13px;
     }
-    
+
     .payment-btn i {
-        font-size: 24px;
-        margin-bottom: 8px;
+        font-size: 20px;
+        margin-bottom: 6px;
     }
-    
+
     .payment-btn.active {
         background-color: var(--success-color);
-        color: white;
+        color: #fff;
         border-color: var(--success-color);
     }
-    
+
     .payment-btn:hover {
         background-color: #f0f0f0;
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
     }
-    
+
     .payment-btn.active:hover {
         background-color: #27ae60;
+    }
+
+    .summary-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px dashed #e9ecef;
+    }
+
+    .summary-row:last-of-type {
+        margin-bottom: 0;
+    }
+
+    .summary-label {
+        font-weight: 600;
+        color: var(--primary-color);
+    }
+
+    .summary-value {
+        font-weight: 700;
+        color: #343a40;
+    }
+
+    .settlement-options {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .settlement-btn {
+        border: 1px solid #dee2e6;
+        background: #fff;
+        border-radius: 8px;
+        padding: 9px 8px;
+        font-size: 13px;
+    }
+
+    .settlement-btn.active {
+        border-color: var(--primary-color);
+        background: rgba(44, 62, 80, 0.08);
+        color: var(--primary-color);
+        font-weight: 600;
+    }
+
+    .deposit-input-group {
+        margin-top: 10px;
+    }
+
+    .checkout-btn {
+        width: 100%;
+        padding: 12px;
+        margin-top: 14px;
+        font-size: 16px;
+        font-weight: 600;
+        background-color: var(--success-color);
+        border-color: var(--success-color);
+        border-radius: 8px;
+    }
+
+    .checkout-btn:hover {
+        background-color: #27ae60;
+        border-color: #27ae60;
+    }
+
+    @media (max-width: 991.98px) {
+        .cashier-container {
+            grid-template-columns: 1fr;
+        }
+
+        .right-area {
+            position: static;
+        }
     }
 </style>
 {% endblock %}
@@ -244,9 +254,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // 变量初始化
     const productSearchInput = document.getElementById('product-search-input');
     const productTableBody = document.getElementById('product-table-body');
-    // 会员相关变量 - 会员系统已停用，移除
     const paymentButtons = document.querySelectorAll('.payment-btn');
     const paymentMethodInput = document.getElementById('payment-method');
+    const settlementButtons = document.querySelectorAll('.settlement-btn');
+    const settlementTypeInput = document.getElementById('settlement-type');
+    const depositContainer = document.getElementById('deposit-container');
+    const depositAmountDisplayInput = document.getElementById('deposit-amount-display');
+    const depositAmountInput = document.getElementById('deposit-amount-input');
     window.updateTotalsTimeout = null; // 用于节流 updateTotals
     
     // 商品搜索处理
@@ -276,36 +290,66 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // 会员搜索 - 会员系统已停用，注释掉此功能
-    /*
-    if (memberSearchInput) {
-        memberSearchInput.addEventListener('keypress', function(event) {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                const query = this.value.trim();
-                if (query.length > 0) {
-                    searchMember(query);
-                }
+    // 支付方式选择
+    paymentButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            paymentButtons.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            const paymentMethod = this.getAttribute('data-payment');
+            if (paymentMethodInput) {
+                paymentMethodInput.value = paymentMethod;
             }
         });
+    });
+
+    const initialPayment = paymentMethodInput ? paymentMethodInput.value : 'cash';
+    const initialPaymentButton = document.querySelector(`.payment-btn[data-payment="${initialPayment}"]`);
+    if (initialPaymentButton) {
+        paymentButtons.forEach(btn => btn.classList.remove('active'));
+        initialPaymentButton.classList.add('active');
     }
-    */
-    
-    // 支付方式选择
-    if (paymentButtons) {
-        paymentButtons.forEach(btn => {
-            btn.addEventListener('click', function() {
-                // 移除其他按钮的选中状态
-                paymentButtons.forEach(b => b.classList.remove('active'));
-                // 添加当前按钮的选中状态
-                this.classList.add('active');
-                // 更新隐藏输入字段
-                const paymentMethod = this.getAttribute('data-payment');
-                if (paymentMethodInput) {
-                    paymentMethodInput.value = paymentMethod;
-                }
-            });
+
+    function toggleDepositInput(visible) {
+        if (!depositContainer || !depositAmountDisplayInput || !depositAmountInput) {
+            return;
+        }
+        if (visible) {
+            depositContainer.classList.remove('d-none');
+            depositAmountDisplayInput.focus();
+        } else {
+            depositContainer.classList.add('d-none');
+            depositAmountDisplayInput.value = '';
+            depositAmountInput.value = '0.00';
+        }
+    }
+
+    settlementButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            settlementButtons.forEach(item => item.classList.remove('active'));
+            this.classList.add('active');
+            const settlement = this.getAttribute('data-settlement') || 'completed';
+            if (settlementTypeInput) {
+                settlementTypeInput.value = settlement;
+            }
+            toggleDepositInput(settlement === 'unsettled');
         });
+    });
+
+    if (depositAmountDisplayInput && depositAmountInput) {
+        depositAmountDisplayInput.addEventListener('input', function() {
+            const value = Math.max(parseFloat(this.value) || 0, 0);
+            depositAmountInput.value = value.toFixed(2);
+        });
+    }
+
+    if (settlementTypeInput) {
+        const initSettlement = settlementTypeInput.value || 'completed';
+        const initialSettlementButton = document.querySelector(`.settlement-btn[data-settlement="${initSettlement}"]`);
+        if (initialSettlementButton) {
+            settlementButtons.forEach(btn => btn.classList.remove('active'));
+            initialSettlementButton.classList.add('active');
+        }
+        toggleDepositInput(initSettlement === 'unsettled');
     }
     
     // 根据条码搜索商品
@@ -336,6 +380,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             price: parseFloat(p.price) || 0,
                             wholesale_price: p.wholesale_price ? parseFloat(p.wholesale_price) : null,
                             stock: parseInt(p.stock) || 0,
+                            barcode: p.barcode || p.code || '',
                             spec: p.specification || p.spec || '' // 适配多种可能的 key
                         }));
                         showProductSelectionModal(standardizedProducts);
@@ -349,6 +394,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             price: parseFloat(productSource.price) || 0,
                             wholesale_price: productSource.wholesale_price ? parseFloat(productSource.wholesale_price) : null,
                             stock: parseInt(productSource.stock) || 0,
+                            barcode: productSource.barcode || productSource.code || '',
                             spec: productSource.specification || productSource.spec || ''
                         };
                          // **再次校验构建的对象**
@@ -402,6 +448,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         price: parseFloat(p.price) || 0,
                         wholesale_price: p.wholesale_price ? parseFloat(p.wholesale_price) : null,
                         stock: parseInt(p.stock) || 0,
+                        barcode: p.barcode || p.code || '',
                         spec: p.specification || p.spec || ''
                     }));
                     showProductSelectionModal(standardizedProducts);
@@ -430,6 +477,7 @@ document.addEventListener('DOMContentLoaded', function() {
             productItem.innerHTML = `
                 <div class="card-body">
                     <h5 class="card-title">${product.name}</h5>
+                    <p class="card-text mb-1">编码: ${product.barcode || '-'}</p>
                     <p class="card-text">价格: ¥${product.price.toFixed(2)} | 库存: ${product.stock}</p>
                     <button class="btn btn-primary select-product-btn">
                         选择此商品
@@ -500,6 +548,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 更新小计和总计
                 updateRowSubtotal(existingRow);
                 updateTotals();
+                if (existingRow !== productTableBody.firstElementChild) {
+                    productTableBody.insertBefore(existingRow, productTableBody.firstElementChild);
+                }
                 showAlert('info', `商品 ${product.name} 数量已增加到 ${newQty}`);
             }
             return;
@@ -511,6 +562,7 @@ document.addEventListener('DOMContentLoaded', function() {
         newRow.dataset.productId = product.id;
         newRow.dataset.maxStock = product.stock;
         newRow.dataset.productName = product.name; // 添加额外数据属性
+        const productCode = product.barcode || '-';
         const retailPrice = parseFloat(product.price) || 0; // 零售价
         const wholesalePrice = parseFloat(product.wholesale_price) || retailPrice; // 批发价，如果没有则使用零售价
         newRow.dataset.retailPrice = retailPrice;
@@ -520,6 +572,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // **构建 row HTML**
         const rowHTML = `
             <td>${product.name}
+                <div class="small text-muted">编码: ${productCode}</div>
                 <input type="hidden" class="product-id-input" name="temp_product_id" value="${product.id}">
                 <span class="d-none product-id-display">${product.id}</span>
             </td>
@@ -559,25 +612,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // **执行追加操作**
-        console.log("[addProductToList] Attempting appendChild...");
+        console.log("[addProductToList] Attempting prepend...");
         try {
-            productTableBody.appendChild(newRow);
+            productTableBody.insertBefore(newRow, productTableBody.firstChild);
             const newChildCount = productTableBody.children.length;
-            console.log(`[addProductToList] appendChild completed. New children count: ${newChildCount}`);
+            console.log(`[addProductToList] prepend completed. New children count: ${newChildCount}`);
 
             // **在追加后进行验证**
             const addedRowCheck = productTableBody.querySelector(`tr[data-product-id="${product.id}"]`);
             if (addedRowCheck && addedRowCheck.parentElement === productTableBody) {
                  console.log(`[addProductToList] Verification SUCCESS: Row for product ${product.id} found in DOM and attached to productTableBody.`);
             } else {
-                 console.error(`[addProductToList] Verification FAILED: Row for product ${product.id} NOT found or not attached correctly after appendChild!`);
+                 console.error(`[addProductToList] Verification FAILED: Row for product ${product.id} NOT found or not attached correctly after prepend!`);
                  console.error(`[addProductToList] Checking last child:`, productTableBody.lastChild);
                  showAlert('error', `无法将商品 ${product.name} 正确添加到列表！请检查控制台。`);
                  // 考虑是否需要移除可能错误添加的行？ newRow.remove();
                  return; // 如果验证失败，停止后续操作
             }
         } catch (error) {
-            console.error("[addProductToList] Error during appendChild:", error);
+            console.error("[addProductToList] Error during prepend:", error);
             showAlert('error', `添加商品时发生错误: ${error.message}`);
             return;
         }
@@ -836,6 +889,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 showAlert('error', '请选择支付方式');
                 return; 
             }
+
+            const settlementType = settlementTypeInput ? settlementTypeInput.value : 'completed';
+            const finalAmountForValidation = parseFloat(
+                document.getElementById('final-amount-input')?.value || '0'
+            ) || 0;
+            if (settlementType === 'unsettled') {
+                const depositValue = Math.max(parseFloat(depositAmountDisplayInput?.value || '0') || 0, 0);
+                if (depositValue <= 0) {
+                    showAlert('error', '定金预定必须填写大于 0 的定金金额');
+                    return;
+                }
+                if (depositValue > finalAmountForValidation) {
+                    showAlert('error', '定金金额不能大于应付金额');
+                    return;
+                }
+                if (depositAmountInput) {
+                    depositAmountInput.value = depositValue.toFixed(2);
+                }
+            } else if (depositAmountInput) {
+                depositAmountInput.value = '0.00';
+            }
             
             // 执行产品索引更新 - 创建隐藏字段
             console.log("[Form Submit] Calling updateProductIndices to prepare form data...");
@@ -996,25 +1070,22 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- 重置主容器的样式 -->
 <div class="container-fluid px-0" style="max-width: 100%; width: 100%; padding: 0; margin: 0;">
     <div class="cashier-container">
-        <!-- 左侧区域 - 商品列表和结算 -->
+        <!-- 左侧区域 - 商品列表 -->
         <div class="left-area">
-            <!-- 收银台标题 -->
             <div class="cashier-header">
                 <i class="bi bi-cart3"></i> 收银台
             </div>
             
-            <!-- 商品搜索区域 -->
             <div class="product-search-area p-3 border-bottom">
                 <div class="input-group">
                     <input type="text" id="product-search-input" class="form-control" placeholder="扫描商品条码或输入商品名称">
                     <button type="button" class="btn btn-primary" onclick="searchProductByBarcode(document.getElementById('product-search-input').value)">
                         <i class="bi bi-search"></i> 查找
-                        </button>
-                    </div>
+                    </button>
+                </div>
                 <div class="text-muted small mt-1">按F3快捷键聚焦 / 按Enter键搜索</div>
             </div>
             
-            <!-- 商品列表 -->
             <div class="product-list-container">
                 <table class="product-table">
                     <thead>
@@ -1028,37 +1099,83 @@ document.addEventListener('DOMContentLoaded', function() {
                         </tr>
                     </thead>
                     <tbody id="product-table-body">
-                        <!-- 动态添加的商品行 -->
                     </tbody>
                 </table>
             </div>
-            
-            <!-- 订单汇总 -->
-            <div class="order-summary">
-                <div class="summary-row">
-                    <div class="summary-label">商品总额：</div>
-                    <div class="summary-value">¥<span id="total-amount">0.00</span></div>
+        </div>
+        
+        <!-- 右侧区域 - 支付与结算 -->
+        <div class="right-area">
+            <div class="cashier-info">
+                收银员：{{ request.user.username }}
+            </div>
+
+            <form id="sale-form" method="post">
+                {% csrf_token %}
+                <input type="hidden" id="payment-method" name="payment_method" value="cash">
+                <input type="hidden" id="settlement-type" name="settlement_type" value="completed">
+                <input type="hidden" id="deposit-amount-input" name="deposit_amount" value="0.00">
+                <input type="hidden" id="debug-info" name="debug_info" value="">
+                <input type="hidden" id="product-count" name="product_count" value="0">
+                <input type="hidden" id="total-amount-input" name="total_amount" value="0.00">
+                <input type="hidden" id="discount-amount-input" name="discount_amount" value="0.00">
+                <input type="hidden" id="final-amount-input" name="final_amount" value="0.00">
+
+                <div class="payment-section">
+                    <h5 class="payment-title mb-3">支付方式</h5>
+                    <div class="payment-methods">
+                        <button type="button" class="payment-btn active" data-payment="cash">
+                            <i class="bi bi-cash-coin"></i>
+                            现金
+                        </button>
+                        <button type="button" class="payment-btn" data-payment="card">
+                            <i class="bi bi-credit-card"></i>
+                            POS机
+                        </button>
+                        <button type="button" class="payment-btn" data-payment="balance">
+                            <i class="bi bi-wallet2"></i>
+                            余额
+                        </button>
+                        <button type="button" class="payment-btn" data-payment="mixed">
+                            <i class="bi bi-diagram-3"></i>
+                            混合支付
+                        </button>
+                        <button type="button" class="payment-btn" data-payment="other">
+                            <i class="bi bi-three-dots"></i>
+                            其他
+                        </button>
+                    </div>
                 </div>
-                <div class="summary-row">
-                    <div class="summary-label">折扣金额：</div>
-                    <div class="summary-value">¥<span id="discount-amount">0.00</span></div>
-                </div>
-                <div class="summary-row">
-                    <div class="summary-label">应付金额：</div>
-                    <div class="summary-value">¥<span id="final-amount">0.00</span></div>
-                </div>
-                
-                <form id="sale-form" method="post">
-                    {% csrf_token %}
-                    <input type="hidden" id="payment-method" name="payment_method" value="{{ form.payment_method.value|default:'cash' }}">
-                    <input type="hidden" id="debug-info" name="debug_info" value="">
-                    <input type="hidden" id="product-count" name="product_count" value="0">
-                    <input type="hidden" id="total-amount-input" name="total_amount" value="0.00">
-                    <input type="hidden" id="discount-amount-input" name="discount_amount" value="0.00">
-                    <input type="hidden" id="final-amount-input" name="final_amount" value="0.00">
+
+                <div class="order-summary">
+                    <div class="summary-row">
+                        <div class="summary-label">商品总额</div>
+                        <div class="summary-value">¥<span id="total-amount">0.00</span></div>
+                    </div>
+                    <div class="summary-row">
+                        <div class="summary-label">折扣金额</div>
+                        <div class="summary-value">¥<span id="discount-amount">0.00</span></div>
+                    </div>
+                    <div class="summary-row">
+                        <div class="summary-label">应付金额</div>
+                        <div class="summary-value">¥<span id="final-amount">0.00</span></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">订单类型</label>
+                        <div class="settlement-options">
+                            <button type="button" class="settlement-btn active" data-settlement="completed">直接结账</button>
+                            <button type="button" class="settlement-btn" data-settlement="unsettled">定金预定</button>
+                        </div>
+                        <div id="deposit-container" class="deposit-input-group d-none">
+                            <label for="deposit-amount-display" class="form-label small text-muted mb-1">定金金额</label>
+                            <input type="number" id="deposit-amount-display" class="form-control form-control-sm" min="0" step="0.01" placeholder="输入定金金额">
+                            <div class="form-text">未结算订单不扣库存，销售额按定金入账。</div>
+                        </div>
+                    </div>
 
                     <div class="form-group mb-3">
-                        <label for="warehouse" class="text-muted small">销售仓库:</label>
+                        <label for="warehouse" class="text-muted small">销售仓库</label>
                         <select id="warehouse" name="warehouse" class="form-select form-select-sm" required>
                             {% for warehouse in warehouses %}
                             <option value="{{ warehouse.id }}" {% if selected_warehouse_id == warehouse.id|stringformat:"s" %}selected{% endif %}>
@@ -1069,58 +1186,18 @@ document.addEventListener('DOMContentLoaded', function() {
                             {% endfor %}
                         </select>
                     </div>
-                    
-                    <!-- 添加备注字段 -->
+
                     <div class="form-group mb-3">
-                        <label for="remark" class="text-muted small">备注信息 (可选):</label>
+                        <label for="remark" class="text-muted small">备注信息 (可选)</label>
                         <textarea id="remark" name="remark" class="form-control form-control-sm" rows="2"></textarea>
                     </div>
-                    
-                    <button type="submit" class="btn btn-success checkout-btn">完成结账</button>
-                </form>
-            </div>
-        </div>
-        
-        <!-- 右侧区域 - 收银员信息、会员信息、支付方式 -->
-        <div class="right-area">
-            <!-- 收银员信息 -->
-            <div class="cashier-info">
-                收银员：{{ request.user.username }}
-            </div>
-            
-            <!-- 支付方式 -->
-            <div class="payment-section mt-4">
-                <h5 class="payment-title mb-3">支付方式</h5>
-                
-                <div class="payment-methods">
-                    <button type="button" class="payment-btn active" data-payment="cash">
-                        <i class="bi bi-cash-coin"></i>
-                        现金
-                    </button>
-                    <button type="button" class="payment-btn" data-payment="wechat">
-                        <i class="bi bi-wechat"></i>
-                        微信
-                    </button>
-                    <button type="button" class="payment-btn" data-payment="alipay">
-                        <i class="bi bi-credit-card-2-front"></i>
-                        支付宝
-                    </button>
-                    <button type="button" class="payment-btn" data-payment="card">
-                        <i class="bi bi-credit-card"></i>
-                        POS机
-                    </button>
-                    <button type="button" class="payment-btn" data-payment="account">
-                        <i class="bi bi-wallet2"></i>
-                        余额
-                    </button>
-                    <button type="button" class="payment-btn" data-payment="credit">
-                        <i class="bi bi-journal-text"></i>
-                        挂账
-                    </button>
+
+                    <button type="submit" class="btn btn-success checkout-btn">提交订单</button>
                 </div>
-            </div>
+            </form>
         </div>
     </div>
+</div>
 
 <!-- 商品选择模态框 -->
 <div class="modal fade" id="product-selection-modal" tabindex="-1" aria-hidden="true">

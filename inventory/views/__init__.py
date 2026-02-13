@@ -66,6 +66,8 @@ from .core import (
 from .inventory import (
     inventory_list,
     inventory_transaction_list,
+    inventory_import,
+    inventory_export,
     inventory_in,
     inventory_out,
     inventory_adjust,

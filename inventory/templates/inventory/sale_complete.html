@@ -81,8 +81,20 @@
                                 </tr>
                                 <tr>
                                     <th colspan="4" class="text-end">应付金额:</th>
-                                    <th class="text-end">¥{{ sale.final_amount|floatformat:2 }}</th>
+                                    <th class="text-end">
+                                        ¥{% if sale.status == 'UNSETTLED' %}{{ sale.total_amount|floatformat:2 }}{% else %}{{ sale.final_amount|floatformat:2 }}{% endif %}
+                                    </th>
                                 </tr>
+                                {% if sale.status == 'UNSETTLED' %}
+                                <tr>
+                                    <th colspan="4" class="text-end">已收定金:</th>
+                                    <th class="text-end">¥{{ sale.deposit_amount|floatformat:2 }}</th>
+                                </tr>
+                                <tr>
+                                    <th colspan="4" class="text-end">待补金额:</th>
+                                    <th class="text-end">¥{{ sale.remaining_amount|floatformat:2 }}</th>
+                                </tr>
+                                {% endif %}
                             </tfoot>
                         </table>
                     </div>
@@ -92,7 +104,7 @@
                         {% csrf_token %}
                         <h5 class="mb-3">支付方式</h5>
                         <div class="row mb-3">
-                            {% for value, label in form.payment_method.field.choices %}
+                            {% for value, label in payment_method_choices %}
                             <div class="col-md-4 mb-3">
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="payment_method" id="payment_{{ value }}" 
@@ -151,8 +163,20 @@
                     </div>
                     <div class="mb-3">
                         <h6 class="text-muted">应付金额</h6>
-                        <p class="fs-4 fw-bold text-danger">¥{{ sale.final_amount|floatformat:2 }}</p>
+                        <p class="fs-4 fw-bold text-danger">
+                            ¥{% if sale.status == 'UNSETTLED' %}{{ sale.total_amount|floatformat:2 }}{% else %}{{ sale.final_amount|floatformat:2 }}{% endif %}
+                        </p>
                     </div>
+                    {% if sale.status == 'UNSETTLED' %}
+                    <div class="mb-3">
+                        <h6 class="text-muted">已收定金</h6>
+                        <p class="text-primary">¥{{ sale.deposit_amount|floatformat:2 }}</p>
+                    </div>
+                    <div class="mb-3">
+                        <h6 class="text-muted">待补金额</h6>
+                        <p class="fs-5 fw-bold text-danger">¥{{ sale.remaining_amount|floatformat:2 }}</p>
+                    </div>
+                    {% endif %}
                     
                 </div>
             </div>
@@ -162,22 +186,7 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // 处理支付方式选择，显示/隐藏余额支付部分
-    const paymentInputs = document.querySelectorAll('input[name="payment_method"]');
-    const balanceSection = document.getElementById('balance-payment-section');
-    
-    function updateBalanceSection() {
-            const selectedPayment = document.querySelector('input[name="payment_method"]:checked')?.value;
-            balanceSection.style.display = 'none';
-        }
-    
-    // 初始化时检查一次
-    updateBalanceSection();
-    
-    // 添加事件监听器
-    paymentInputs.forEach(input => {
-        input.addEventListener('change', updateBalanceSection);
-    });
+    // 预留扩展：当前结算页无余额拆分区块。
 });
 </script>
 {% endblock %} 

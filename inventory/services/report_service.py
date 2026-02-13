@@ -3,7 +3,7 @@ Report generation and data analysis services.
 """
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from django.db.models import Sum, Count, F, Case, When, Value
+from django.db.models import Sum, Count, F, Case, When, Value, DecimalField, ExpressionWrapper
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 from django.utils import timezone
 
@@ -16,14 +16,25 @@ from inventory.utils.date_utils import get_period_boundaries
 
 def _normalize_date_range(start_date, end_date):
     """
-    确保 end_date 包含整天，避免遗漏结束日数据。
-    当 end_date 为 date 对象时，查询上界使用次日 00:00。
+    规范化日期范围并确保用于 DateTimeField 查询时具备时区信息。
+    当 end_date 为 date 对象时，查询上界使用次日 00:00（左闭右开）。
     """
+    tz = timezone.get_current_timezone()
+
+    if start_date and isinstance(start_date, date) and not isinstance(start_date, datetime):
+        start_date = datetime.combine(start_date, datetime.min.time())
+    if start_date and timezone.is_naive(start_date):
+        start_date = timezone.make_aware(start_date, tz)
+
     if not end_date:
         return start_date, end_date
     if isinstance(end_date, date) and not isinstance(end_date, datetime):
-        end_date_upper = end_date + timedelta(days=1)
+        end_date_upper = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+        if timezone.is_naive(end_date_upper):
+            end_date_upper = timezone.make_aware(end_date_upper, tz)
         return start_date, end_date_upper
+    if timezone.is_naive(end_date):
+        end_date = timezone.make_aware(end_date, tz)
     return start_date, end_date
 
 
@@ -276,6 +287,120 @@ class ReportService:
 
         product_turnover.sort(key=lambda x: x['turnover_rate'], reverse=True)
         return product_turnover
+
+    @staticmethod
+    def get_stock_in_report(start_date=None, end_date=None, warehouse_ids=None):
+        """
+        获取入库报表数据。
+
+        口径说明：
+        1) 入库金额按商品零售价 * 入库数量计算；
+        2) 仓库库存总值按当前库存数量 * 商品零售价计算；
+        3) warehouse_ids 为空列表时返回空范围结果。
+        """
+        today = timezone.localdate()
+        if not start_date:
+            start_date = today
+        if not end_date:
+            end_date = today
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+        amount_expr = ExpressionWrapper(
+            F('quantity') * F('product__price'),
+            output_field=DecimalField(max_digits=18, decimal_places=2),
+        )
+
+        stock_in_query = InventoryTransaction.objects.filter(
+            transaction_type='IN',
+            created_at__range=(start_date, end_date_upper),
+        ).select_related('product', 'warehouse', 'operator')
+
+        if warehouse_ids is not None:
+            if warehouse_ids:
+                stock_in_query = stock_in_query.filter(warehouse_id__in=warehouse_ids)
+            else:
+                stock_in_query = stock_in_query.none()
+
+        transaction_rows = stock_in_query.annotate(
+            line_amount=amount_expr,
+            day=TruncDay('created_at'),
+        ).values(
+            'id',
+            'day',
+            'created_at',
+            'quantity',
+            'line_amount',
+            'product__name',
+            'product__barcode',
+            'product__price',
+            'warehouse__name',
+            'operator__username',
+        ).order_by('-created_at', '-id')
+
+        transactions = [
+            {
+                'id': row['id'],
+                'day': row['day'],
+                'created_at': row['created_at'],
+                'quantity': row['quantity'],
+                'line_amount': row['line_amount'] or Decimal('0.00'),
+                'product_name': row['product__name'] or '',
+                'product_barcode': row['product__barcode'] or '',
+                'retail_price': row['product__price'] or Decimal('0.00'),
+                'warehouse_name': row['warehouse__name'] or '未绑定仓库',
+                'operator_name': row['operator__username'] or '-',
+            }
+            for row in transaction_rows
+        ]
+
+        daily_summary_rows = stock_in_query.annotate(
+            day=TruncDay('created_at')
+        ).values('day').annotate(
+            total_quantity=Sum('quantity'),
+            total_amount=Sum(amount_expr),
+            line_count=Count('id'),
+        ).order_by('-day')
+
+        daily_summary = [
+            {
+                'day': row['day'],
+                'total_quantity': row['total_quantity'] or 0,
+                'total_amount': row['total_amount'] or Decimal('0.00'),
+                'line_count': row['line_count'] or 0,
+            }
+            for row in daily_summary_rows
+        ]
+
+        totals = stock_in_query.aggregate(
+            total_quantity=Sum('quantity'),
+            total_amount=Sum(amount_expr),
+        )
+
+        inventory_scope = WarehouseInventory.objects.filter(warehouse__is_active=True)
+        if warehouse_ids is not None:
+            if warehouse_ids:
+                inventory_scope = inventory_scope.filter(warehouse_id__in=warehouse_ids)
+            else:
+                inventory_scope = inventory_scope.none()
+
+        warehouse_totals = inventory_scope.aggregate(
+            total_quantity=Sum('quantity'),
+            total_retail_value=Sum(
+                ExpressionWrapper(
+                    F('quantity') * F('product__price'),
+                    output_field=DecimalField(max_digits=18, decimal_places=2),
+                )
+            ),
+        )
+
+        return {
+            'transactions': transactions,
+            'daily_summary': daily_summary,
+            'stock_in_total_quantity': totals['total_quantity'] or 0,
+            'stock_in_total_amount': totals['total_amount'] or Decimal('0.00'),
+            'warehouse_total_quantity': warehouse_totals['total_quantity'] or 0,
+            'warehouse_total_value': warehouse_totals['total_retail_value'] or Decimal('0.00'),
+        }
     
     @staticmethod
     def get_profit_report(start_date=None, end_date=None, sale_type=None, warehouse_ids=None):
@@ -420,28 +545,27 @@ class ReportService:
             QuerySet: Operation logs
         """
         if not start_date:
-            start_date = timezone.now() - timedelta(days=7)
+            start_date = timezone.localdate()
         if not end_date:
-            end_date = timezone.now()
-        
-        # 结束日期+1天以包含当天的记录
-        end_date_inclusive = end_date + timedelta(days=1)
+            end_date = timezone.localdate()
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
         
         # 获取日志记录
         logs = OperationLog.objects.filter(
-            timestamp__range=(start_date, end_date_inclusive)
+            timestamp__range=(start_date, end_date_upper)
         ).select_related('operator', 'related_content_type').order_by('-timestamp')
         
         # 按操作类型统计
         operation_type_stats = OperationLog.objects.filter(
-            timestamp__range=(start_date, end_date_inclusive)
+            timestamp__range=(start_date, end_date_upper)
         ).values('operation_type').annotate(
             count=Count('id')
         ).order_by('-count')
         
         # 按操作员统计
         operator_stats = OperationLog.objects.filter(
-            timestamp__range=(start_date, end_date_inclusive)
+            timestamp__range=(start_date, end_date_upper)
         ).values('operator__username').annotate(
             count=Count('id')
         ).order_by('-count')

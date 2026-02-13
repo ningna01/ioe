@@ -1,0 +1,87 @@
+{% extends "inventory/base.html" %}
+
+{% block title %}数据工具 - {{ block.super }}{% endblock %}
+
+{% block extra_head %}
+{% include "inventory/reports/_assets.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container report-page">
+    <div class="row mb-4 report-header">
+        <div class="col-md-8">
+            <h1 class="h2">数据工具</h1>
+            <p class="text-muted mb-0">当前仓库范围: {{ warehouse_scope_label }}</p>
+            <p class="text-muted mb-0">用于商品建档与库存数据的批量导入导出</p>
+        </div>
+        <div class="col-md-4 text-md-end">
+            <a href="{% url 'reports_index' %}?warehouse={{ selected_warehouse }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i>返回报表中心
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card h-100 report-link-card">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">商品管理</h5>
+                    <p class="card-text text-muted">批量新增商品档案、导出商品主数据（CSV / Excel）。</p>
+                    {% if can_manage_products %}
+                    <div class="d-flex flex-wrap gap-2">
+                        <a href="{% url 'product_import' %}" class="btn btn-primary btn-sm">
+                            <i class="bi bi-file-earmark-arrow-up me-1"></i>导入商品
+                        </a>
+                        <a href="{% url 'product_export' %}?format=csv" class="btn btn-outline-secondary btn-sm">
+                            导出 CSV
+                        </a>
+                        <a href="{% url 'product_export' %}?format=xlsx" class="btn btn-outline-secondary btn-sm">
+                            导出 Excel
+                        </a>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning mb-0">
+                        当前账号没有商品管理权限，无法使用商品导入导出。
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card h-100 report-link-card">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">库存管理</h5>
+                    <p class="card-text text-muted">批量入库导入、导出当前库存快照（CSV / Excel）。</p>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% if can_stock_in %}
+                        <a href="{% url 'inventory_import' %}" class="btn btn-primary btn-sm">
+                            <i class="bi bi-file-earmark-arrow-up me-1"></i>批量入库
+                        </a>
+                        {% else %}
+                        <button type="button" class="btn btn-primary btn-sm" disabled>批量入库</button>
+                        {% endif %}
+
+                        {% if can_view_inventory %}
+                        <a href="{% url 'inventory_export' %}?format=csv&warehouse={{ selected_warehouse }}" class="btn btn-outline-secondary btn-sm">
+                            导出 CSV
+                        </a>
+                        <a href="{% url 'inventory_export' %}?format=xlsx&warehouse={{ selected_warehouse }}" class="btn btn-outline-secondary btn-sm">
+                            导出 Excel
+                        </a>
+                        {% else %}
+                        <button type="button" class="btn btn-outline-secondary btn-sm" disabled>导出 CSV</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" disabled>导出 Excel</button>
+                        {% endif %}
+                    </div>
+                    {% if not can_stock_in and not can_view_inventory %}
+                    <div class="alert alert-warning mt-3 mb-0">
+                        当前账号没有库存权限，无法使用库存导入导出。
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

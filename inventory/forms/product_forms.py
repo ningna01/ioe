@@ -453,12 +453,12 @@ class ProductBulkForm(forms.Form):
 class ProductImportForm(forms.Form):
     """商品导入表单"""
     csv_file = forms.FileField(
-        label='CSV文件',
+        label='导入文件',
         required=True,
         widget=forms.FileInput(attrs={
             'class': 'form-control',
-            'accept': '.csv',
-            'aria-label': 'CSV文件'
+            'accept': '.csv,.xlsx',
+            'aria-label': '导入文件'
         })
     )
     
@@ -466,8 +466,9 @@ class ProductImportForm(forms.Form):
         csv_file = self.cleaned_data.get('csv_file')
         if csv_file:
             # 检查文件类型
-            if not csv_file.name.endswith('.csv'):
-                raise forms.ValidationError('请上传CSV格式的文件')
+            file_name = (csv_file.name or '').lower()
+            if not (file_name.endswith('.csv') or file_name.endswith('.xlsx')):
+                raise forms.ValidationError('请上传 CSV 或 XLSX 格式的文件')
             
             # 检查文件大小，限制为5MB
             if csv_file.size > 5 * 1024 * 1024:

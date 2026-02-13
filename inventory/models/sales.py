@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from decimal import Decimal
 
 from .product import Product
 from .warehouse import Warehouse
@@ -12,13 +13,13 @@ class Sale(models.Model):
     """
     STATUS_CHOICES = [
         ('COMPLETED', '已完成'),
+        ('UNSETTLED', '未结算'),
+        ('ABANDONED', '已放弃'),
         ('DELETED', '已删除'),
     ]
 
     PAYMENT_METHODS = [
         ('cash', '现金'),
-        ('wechat', '微信'),
-        ('alipay', '支付宝'),
         ('card', '银行卡'),
         ('balance', '账户余额'),
         ('mixed', '混合支付'),
@@ -30,6 +31,7 @@ class Sale(models.Model):
     member_id = models.IntegerField(null=True, blank=True, verbose_name='会员ID', default=None)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='总金额')
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='折扣金额')
+    deposit_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='定金金额')
     final_amount = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='实付金额')
     points_earned = models.IntegerField(default=0, verbose_name='获得积分')
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, default='cash', verbose_name='支付方式')
@@ -70,16 +72,58 @@ class Sale(models.Model):
     def update_total_amount(self):
         self.total_amount = sum(item.subtotal for item in self.items.all())
         return self.total_amount
+
+    @property
+    def remaining_amount(self):
+        if (self.status or '').upper() != 'UNSETTLED':
+            return Decimal('0.00')
+
+        total_amount = self.total_amount or Decimal('0.00')
+        deposit_amount = self.deposit_amount or Decimal('0.00')
+        remaining = total_amount - deposit_amount
+        return remaining if remaining > 0 else Decimal('0.00')
     
     def save(self, *args, **kwargs):
         # 确保total_amount不为None且为有效值
         if self.total_amount is None:
-            self.total_amount = 0
-        
-        if self.total_amount < self.discount_amount:
-            self.discount_amount = self.total_amount
-        
-        self.final_amount = self.total_amount - self.discount_amount
+            self.total_amount = Decimal('0.00')
+
+        if self.discount_amount is None:
+            self.discount_amount = Decimal('0.00')
+        if self.deposit_amount is None:
+            self.deposit_amount = Decimal('0.00')
+
+        normalized_status = (self.status or '').upper()
+        if normalized_status == 'UNSETTLED':
+            if self.deposit_amount < 0:
+                self.deposit_amount = Decimal('0.00')
+            if self.deposit_amount > self.total_amount:
+                self.deposit_amount = self.total_amount
+
+            self.discount_amount = Decimal('0.00')
+            self.final_amount = self.deposit_amount
+        elif normalized_status == 'ABANDONED':
+            # 已放弃单据保留定金记账口径，避免误回算为商品全额。
+            if self.deposit_amount < 0:
+                self.deposit_amount = Decimal('0.00')
+            if self.deposit_amount > self.total_amount:
+                self.deposit_amount = self.total_amount
+            self.discount_amount = Decimal('0.00')
+            self.final_amount = self.deposit_amount
+        elif normalized_status == 'DELETED':
+            # 已删除单据允许保留手工设置的冲销金额，不再自动回算应收。
+            if self.discount_amount is None:
+                self.discount_amount = Decimal('0.00')
+            if self.deposit_amount is None or self.deposit_amount < 0:
+                self.deposit_amount = Decimal('0.00')
+            if self.final_amount is None or self.final_amount < 0:
+                self.final_amount = Decimal('0.00')
+        else:
+            if self.total_amount < self.discount_amount:
+                self.discount_amount = self.total_amount
+
+            self.final_amount = self.total_amount - self.discount_amount
+
         super().save(*args, **kwargs)
         
     class Meta:

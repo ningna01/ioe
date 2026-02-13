@@ -62,6 +62,8 @@
                                 <span class="input-group-text bg-primary text-white"><i class="bi bi-funnel"></i></span>
                                 <select class="form-select border-primary" id="statusFilter" name="status_filter">
                                     <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>已完成</option>
+                                    <option value="unsettled" {% if status_filter == 'unsettled' %}selected{% endif %}>未结算</option>
+                                    <option value="abandoned" {% if status_filter == 'abandoned' %}selected{% endif %}>已放弃</option>
                                     <option value="deleted" {% if status_filter == 'deleted' %}selected{% endif %}>已删除</option>
                                 </select>
                             </div>
@@ -80,9 +82,9 @@
                             <div class="input-group">
                                 <span class="input-group-text bg-primary text-white"><i class="bi bi-cash-coin"></i></span>
                                 <select class="form-select border-primary" id="amountScopeFilter" name="amount_scope">
-                                    <option value="retail" {% if amount_scope == 'retail' %}selected{% endif %}>金额口径：零售</option>
-                                    <option value="wholesale" {% if amount_scope == 'wholesale' %}selected{% endif %}>金额口径：批发</option>
                                     <option value="total" {% if amount_scope == 'total' %}selected{% endif %}>金额口径：总额</option>
+                                    <option value="retail" {% if amount_scope == 'retail' %}selected{% endif %}>金额口径：零售+定金</option>
+                                    <option value="wholesale" {% if amount_scope == 'wholesale' %}selected{% endif %}>金额口径：批发+定金</option>
                                 </select>
                             </div>
                         </div>
@@ -131,7 +133,14 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <span class="fw-bold text-success">¥{{ sale.total_amount }}</span>
+                                    <span class="fw-bold text-success">¥{{ sale.final_amount|floatformat:2 }}</span>
+                                    {% if sale.status == 'UNSETTLED' %}
+                                    <br><small class="text-muted">商品总额: ¥{{ sale.total_amount|floatformat:2 }}</small>
+                                    <br><small class="text-muted">待结算: ¥{{ sale.remaining_amount|floatformat:2 }}</small>
+                                    {% elif sale.status == 'ABANDONED' %}
+                                    <br><small class="text-muted">商品总额: ¥{{ sale.total_amount|floatformat:2 }}</small>
+                                    <br><small class="text-muted">状态: 已放弃（定金保留）</small>
+                                    {% endif %}
                                     {% if sale.discount_amount %}
                                     <br><small class="text-muted">优惠: ¥{{ sale.discount_amount }}</small>
                                     {% endif %}
@@ -139,6 +148,10 @@
                                 <td>
                                     {% if sale.status == 'DELETED' %}
                                     <span class="badge bg-danger">{{ sale.get_status_display }}</span>
+                                    {% elif sale.status == 'ABANDONED' %}
+                                    <span class="badge bg-secondary">{{ sale.get_status_display }}</span>
+                                    {% elif sale.status == 'UNSETTLED' %}
+                                    <span class="badge bg-warning text-dark">{{ sale.get_status_display }}</span>
                                     {% else %}
                                     <span class="badge bg-success">{{ sale.get_status_display }}</span>
                                     {% endif %}
@@ -148,12 +161,17 @@
                                         <a href="{% url 'sale_detail' sale.id %}" class="btn btn-sm btn-outline-info" title="查看详情">
                                             <i class="bi bi-eye"></i>
                                         </a>
-                                        {% if sale.status != 'DELETED' %}
+                                        {% if sale.status == 'UNSETTLED' %}
+                                        <a href="{% url 'sale_complete' sale.id %}" class="btn btn-sm btn-outline-success" title="完成结算">
+                                            <i class="bi bi-check2-circle"></i>
+                                        </a>
+                                        {% endif %}
+                                        {% if sale.status != 'DELETED' and sale.status != 'ABANDONED' %}
                                         <a href="{% url 'sale_cancel' sale.id %}" class="btn btn-sm btn-outline-danger" title="删除订单">
                                             <i class="bi bi-trash"></i>
                                         </a>
                                         {% else %}
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" title="已删除" disabled>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" title="当前状态不可删除" disabled>
                                             <i class="bi bi-check2-circle"></i>
                                         </button>
                                         {% endif %}
