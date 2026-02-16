@@ -3,7 +3,18 @@ Report generation and data analysis services.
 """
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from django.db.models import Sum, Count, F, Case, When, Value, DecimalField, ExpressionWrapper
+from django.db.models import (
+    Sum,
+    Count,
+    F,
+    Case,
+    When,
+    Value,
+    DecimalField,
+    ExpressionWrapper,
+    Exists,
+    OuterRef,
+)
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 from django.utils import timezone
 
@@ -38,6 +49,74 @@ def _normalize_date_range(start_date, end_date):
     return start_date, end_date
 
 
+def _as_decimal(value):
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value or 0))
+
+
+def _build_period_trunc(period, field_name):
+    if period == 'day':
+        return TruncDay(field_name)
+    if period == 'week':
+        return TruncWeek(field_name)
+    if period == 'month':
+        return TruncMonth(field_name)
+    if period == 'quarter':
+        return TruncQuarter(field_name)
+    if period == 'year':
+        return TruncYear(field_name)
+    return TruncDay(field_name)
+
+
+def _apply_warehouse_scope(queryset, warehouse_ids):
+    if warehouse_ids is None:
+        return queryset
+    if warehouse_ids:
+        return queryset.filter(warehouse_id__in=warehouse_ids)
+    return queryset.none()
+
+
+def _apply_sale_type_scope_to_sales(sales_query, sale_type):
+    if sale_type and sale_type in ['retail', 'wholesale']:
+        matched_items = SaleItem.objects.filter(
+            sale_id=OuterRef('pk'),
+            sale_type=sale_type,
+        )
+        return sales_query.filter(Exists(matched_items))
+    return sales_query
+
+
+def _get_completed_sale_items_query(start_date, end_date_upper, sale_type=None, warehouse_ids=None):
+    items_query = SaleItem.objects.filter(
+        sale__created_at__range=(start_date, end_date_upper),
+        sale__status='COMPLETED',
+    )
+
+    if warehouse_ids is not None:
+        if warehouse_ids:
+            items_query = items_query.filter(sale__warehouse_id__in=warehouse_ids)
+        else:
+            items_query = items_query.none()
+
+    if sale_type and sale_type in ['retail', 'wholesale']:
+        items_query = items_query.filter(sale_type=sale_type)
+
+    return items_query
+
+
+def _get_deposit_sales_query(start_date, end_date_upper, sale_type=None, warehouse_ids=None):
+    sales_query = Sale.objects.filter(
+        created_at__range=(start_date, end_date_upper),
+        status__in=['UNSETTLED', 'ABANDONED'],
+        deposit_amount__gt=0,
+    )
+
+    sales_query = _apply_warehouse_scope(sales_query, warehouse_ids)
+    sales_query = _apply_sale_type_scope_to_sales(sales_query, sale_type)
+    return sales_query
+
+
 class ReportService:
     """Service for generating reports and analyzing data."""
     
@@ -63,54 +142,83 @@ class ReportService:
 
         start_date, end_date_upper = _normalize_date_range(start_date, end_date)
 
-        # Truncate function based on period
-        if period == 'day':
-            trunc_func = TruncDay('sale__created_at')
-        elif period == 'week':
-            trunc_func = TruncWeek('sale__created_at')
-        elif period == 'month':
-            trunc_func = TruncMonth('sale__created_at')
-        elif period == 'quarter':
-            trunc_func = TruncQuarter('sale__created_at')
-        elif period == 'year':
-            trunc_func = TruncYear('sale__created_at')
-        else:
-            trunc_func = TruncDay('sale__created_at')
+        items_trunc_func = _build_period_trunc(period, 'sale__created_at')
+        sales_trunc_func = _build_period_trunc(period, 'created_at')
 
-        # 基于销售明细聚合，避免多商品销售单导致金额重复计入
-        items_query = SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date_upper)
+        # 已完成单据：按 SaleItem 汇总金额/成本/件数。
+        items_query = _get_completed_sale_items_query(
+            start_date=start_date,
+            end_date_upper=end_date_upper,
+            sale_type=sale_type,
+            warehouse_ids=warehouse_ids,
+        )
+        completed_rows = list(
+            items_query.annotate(
+                period=items_trunc_func
+            ).values(
+                'period'
+            ).annotate(
+                total_sales=Sum('subtotal'),
+                total_cost=Sum(F('quantity') * F('product__cost')),
+                order_count=Count('sale_id', distinct=True),
+                item_count=Count('id')
+            ).order_by('period')
         )
 
-        if warehouse_ids is not None:
-            if warehouse_ids:
-                items_query = items_query.filter(sale__warehouse_id__in=warehouse_ids)
-            else:
-                items_query = items_query.none()
+        # 未结算/已放弃：金额按定金入账，成本与销售件数不计入。
+        deposit_rows = list(
+            _get_deposit_sales_query(
+                start_date=start_date,
+                end_date_upper=end_date_upper,
+                sale_type=sale_type,
+                warehouse_ids=warehouse_ids,
+            ).annotate(
+                period=sales_trunc_func
+            ).values(
+                'period'
+            ).annotate(
+                total_sales=Sum('deposit_amount'),
+                order_count=Count('id'),
+            ).order_by('period')
+        )
 
-        if sale_type and sale_type in ['retail', 'wholesale']:
-            items_query = items_query.filter(sale_type=sale_type)
+        merged = {}
+        for row in completed_rows:
+            period_key = row['period']
+            merged[period_key] = {
+                'period': period_key,
+                'total_sales': _as_decimal(row.get('total_sales')),
+                'total_cost': _as_decimal(row.get('total_cost')),
+                'order_count': row.get('order_count') or 0,
+                'item_count': row.get('item_count') or 0,
+            }
 
-        sales_data = items_query.annotate(
-            period=trunc_func
-        ).values(
-            'period'
-        ).annotate(
-            total_sales=Sum('subtotal'),
-            total_cost=Sum(F('quantity') * F('product__cost')),
-            order_count=Count('sale_id', distinct=True),
-            item_count=Count('id')
-        ).order_by('period')
-        
+        for row in deposit_rows:
+            period_key = row['period']
+            bucket = merged.setdefault(
+                period_key,
+                {
+                    'period': period_key,
+                    'total_sales': Decimal('0.00'),
+                    'total_cost': Decimal('0.00'),
+                    'order_count': 0,
+                    'item_count': 0,
+                }
+            )
+            bucket['total_sales'] = _as_decimal(bucket.get('total_sales')) + _as_decimal(row.get('total_sales'))
+            bucket['order_count'] = (bucket.get('order_count') or 0) + (row.get('order_count') or 0)
+
+        sales_data = [merged[key] for key in sorted(merged.keys())]
+
         # Calculate profit（利润率 = 利润 / 销售额）
         for data in sales_data:
-            data['profit'] = data['total_sales'] - (data['total_cost'] or 0)
-            total_sales_val = data.get('total_sales') or 0
-            if total_sales_val and total_sales_val > 0:
+            data['profit'] = _as_decimal(data.get('total_sales')) - _as_decimal(data.get('total_cost'))
+            total_sales_val = _as_decimal(data.get('total_sales'))
+            if total_sales_val > 0:
                 data['profit_margin'] = (data['profit'] / total_sales_val) * 100
             else:
                 data['profit_margin'] = 0
-                
+
         return sales_data
     
     @staticmethod
@@ -135,19 +243,13 @@ class ReportService:
 
         start_date, end_date_upper = _normalize_date_range(start_date, end_date)
 
-        items_query = SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date_upper)
+        # 热销商品仅统计已完成销售，避免未结算/已放弃/已删除单据污染销量。
+        items_query = _get_completed_sale_items_query(
+            start_date=start_date,
+            end_date_upper=end_date_upper,
+            sale_type=sale_type,
+            warehouse_ids=warehouse_ids,
         )
-
-        if warehouse_ids is not None:
-            if warehouse_ids:
-                items_query = items_query.filter(sale__warehouse_id__in=warehouse_ids)
-            else:
-                items_query = items_query.none()
-
-        # Apply sale type filter if specified
-        if sale_type and sale_type in ['retail', 'wholesale']:
-            items_query = items_query.filter(sale_type=sale_type)
 
         raw_data = list(items_query.values(
             'product__id',
@@ -215,6 +317,7 @@ class ReportService:
         sales_query = SaleItem.objects.filter(
             sale__created_at__range=(start_date, end_date_upper),
             sale__warehouse_id__in=scope_warehouse_ids,
+            sale__status='COMPLETED',
         )
         txn_base_query = InventoryTransaction.objects.filter(
             created_at__range=(start_date, end_date_upper),
@@ -423,18 +526,12 @@ class ReportService:
 
         start_date, end_date_upper = _normalize_date_range(start_date, end_date)
 
-        sale_items_query = SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date_upper)
+        sale_items_query = _get_completed_sale_items_query(
+            start_date=start_date,
+            end_date_upper=end_date_upper,
+            sale_type=sale_type,
+            warehouse_ids=warehouse_ids,
         )
-
-        if warehouse_ids is not None:
-            if warehouse_ids:
-                sale_items_query = sale_items_query.filter(sale__warehouse_id__in=warehouse_ids)
-            else:
-                sale_items_query = sale_items_query.none()
-
-        if sale_type and sale_type in ['retail', 'wholesale']:
-            sale_items_query = sale_items_query.filter(sale_type=sale_type)
 
         total_aggregates = sale_items_query.aggregate(
             sales=Sum('subtotal'),
@@ -442,6 +539,17 @@ class ReportService:
         )
         total_sales_amount = total_aggregates['sales'] or 0
         total_cost = total_aggregates['cost'] or 0
+
+        deposit_sales_query = _get_deposit_sales_query(
+            start_date=start_date,
+            end_date_upper=end_date_upper,
+            sale_type=sale_type,
+            warehouse_ids=warehouse_ids,
+        )
+        recognized_deposit = deposit_sales_query.aggregate(
+            total=Sum('deposit_amount')
+        )['total'] or 0
+        total_sales_amount += recognized_deposit
         gross_profit = total_sales_amount - total_cost
         
         # Calculate by category
@@ -477,7 +585,10 @@ class ReportService:
             'gross_profit': gross_profit,
             'profit_margin': profit_margin,
             'discount_amount': discount_amount,
-            'order_count': sale_items_query.values('sale_id').distinct().count(),
+            'order_count': (
+                sale_items_query.values('sale_id').distinct().count()
+                + deposit_sales_query.count()
+            ),
             'item_count': sale_items_query.count(),
             'category_data': category_data
         }
@@ -592,10 +703,13 @@ class ReportService:
             start_date = timezone.now() - timedelta(days=30)
         if not end_date:
             end_date = timezone.now()
-        
-        # 按销售方式统计
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+
+        # 按销售方式统计（已完成单据）。
         sales_by_type = list(SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date)
+            sale__created_at__range=(start_date, end_date_upper),
+            sale__status='COMPLETED',
         ).values('sale_type').annotate(
             total_sales=Sum('subtotal'),
             total_quantity=Sum('quantity'),
@@ -604,7 +718,40 @@ class ReportService:
         ).annotate(
             profit=F('total_sales') - F('total_cost')
         ))
-        
+
+        sales_by_type_map = {item['sale_type']: item for item in sales_by_type}
+        for sale_type in ['retail', 'wholesale']:
+            deposit_summary = _get_deposit_sales_query(
+                start_date=start_date,
+                end_date_upper=end_date_upper,
+                sale_type=sale_type,
+            ).aggregate(
+                total_sales=Sum('deposit_amount'),
+                order_count=Count('id'),
+            )
+
+            deposit_sales = deposit_summary.get('total_sales') or Decimal('0.00')
+            deposit_orders = deposit_summary.get('order_count') or 0
+            if not deposit_sales and not deposit_orders and sale_type not in sales_by_type_map:
+                continue
+
+            bucket = sales_by_type_map.setdefault(
+                sale_type,
+                {
+                    'sale_type': sale_type,
+                    'total_sales': Decimal('0.00'),
+                    'total_quantity': 0,
+                    'total_cost': Decimal('0.00'),
+                    'order_count': 0,
+                    'profit': Decimal('0.00'),
+                }
+            )
+            bucket['total_sales'] = _as_decimal(bucket.get('total_sales')) + _as_decimal(deposit_sales)
+            bucket['order_count'] = (bucket.get('order_count') or 0) + deposit_orders
+            bucket['profit'] = _as_decimal(bucket.get('total_sales')) - _as_decimal(bucket.get('total_cost'))
+
+        sales_by_type = list(sales_by_type_map.values())
+
         # 利润率 = 利润/销售额，Python 后处理避免除零
         for item in sales_by_type:
             total_sales_val = item.get('total_sales') or 0
@@ -629,11 +776,14 @@ class ReportService:
             start_date = timezone.now() - timedelta(days=30)
         if not end_date:
             end_date = timezone.now()
-        
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+
         # 零售数据
         retail_data = SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date),
-            sale_type='retail'
+            sale__created_at__range=(start_date, end_date_upper),
+            sale_type='retail',
+            sale__status='COMPLETED',
         ).aggregate(
             total_sales=Sum('subtotal'),
             total_quantity=Sum('quantity'),
@@ -643,14 +793,31 @@ class ReportService:
         
         # 批发数据
         wholesale_data = SaleItem.objects.filter(
-            sale__created_at__range=(start_date, end_date),
-            sale_type='wholesale'
+            sale__created_at__range=(start_date, end_date_upper),
+            sale_type='wholesale',
+            sale__status='COMPLETED',
         ).aggregate(
             total_sales=Sum('subtotal'),
             total_quantity=Sum('quantity'),
             total_cost=Sum(F('quantity') * F('product__cost')),
             order_count=Count('sale', distinct=True)
         )
+
+        retail_deposit = _get_deposit_sales_query(
+            start_date=start_date,
+            end_date_upper=end_date_upper,
+            sale_type='retail',
+        ).aggregate(total=Sum('deposit_amount'), orders=Count('id'))
+        wholesale_deposit = _get_deposit_sales_query(
+            start_date=start_date,
+            end_date_upper=end_date_upper,
+            sale_type='wholesale',
+        ).aggregate(total=Sum('deposit_amount'), orders=Count('id'))
+
+        retail_data['total_sales'] = (retail_data['total_sales'] or 0) + (retail_deposit['total'] or 0)
+        retail_data['order_count'] = (retail_data['order_count'] or 0) + (retail_deposit['orders'] or 0)
+        wholesale_data['total_sales'] = (wholesale_data['total_sales'] or 0) + (wholesale_deposit['total'] or 0)
+        wholesale_data['order_count'] = (wholesale_data['order_count'] or 0) + (wholesale_deposit['orders'] or 0)
         
         # 计算利润
         retail_profit = (retail_data['total_sales'] or 0) - (retail_data['total_cost'] or 0)

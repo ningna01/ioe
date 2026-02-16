@@ -99,6 +99,7 @@
                                 <th>销售日期</th>
                                 <th>销售方式</th>
                                 <th>金额</th>
+                                <th>备注</th>
                                 <th>状态</th>
                                 <th>操作</th>
                             </tr>
@@ -146,6 +147,13 @@
                                     {% endif %}
                                 </td>
                                 <td>
+                                    {% if sale.remark %}
+                                    <div class="small text-break" title="{{ sale.remark }}">{{ sale.remark }}</div>
+                                    {% else %}
+                                    <span class="text-muted small">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
                                     {% if sale.status == 'DELETED' %}
                                     <span class="badge bg-danger">{{ sale.get_status_display }}</span>
                                     {% elif sale.status == 'ABANDONED' %}
@@ -183,7 +191,7 @@
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="6" class="text-center py-4">
+                                <td colspan="7" class="text-center py-4">
                                     <div class="d-flex flex-column align-items-center">
                                         <i class="bi bi-cart-x text-muted" style="font-size: 2rem;"></i>
                                         <p class="mt-2 mb-0">暂无销售记录</p>
