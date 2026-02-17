@@ -47,6 +47,7 @@ class Sale(models.Model):
         verbose_name='仓库'
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='COMPLETED', verbose_name='状态')
+    account_holder = models.CharField(max_length=120, blank=True, default='', verbose_name='挂账人')
     remark = models.TextField(blank=True, verbose_name='备注')
 
     @property

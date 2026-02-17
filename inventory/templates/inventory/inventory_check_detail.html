@@ -120,15 +120,21 @@
                         
                         <div>
                             {% if inventory_check.status == 'draft' %}
-                            <a href="{% url 'inventory_check_start' check_id=inventory_check.id %}" class="btn btn-primary">
-                                <i class="bi bi-play-fill"></i> 开始盘点
-                            </a>
+                            <form action="{% url 'inventory_check_start' check_id=inventory_check.id %}" method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-play-fill"></i> 开始盘点
+                                </button>
+                            </form>
                             {% endif %}
                             
                             {% if inventory_check.status == 'in_progress' %}
-                            <a href="{% url 'inventory_check_complete' check_id=inventory_check.id %}" class="btn btn-success">
-                                <i class="bi bi-check-circle"></i> 完成盘点
-                            </a>
+                            <form action="{% url 'inventory_check_complete' check_id=inventory_check.id %}" method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-success">
+                                    <i class="bi bi-check-circle"></i> 完成盘点
+                                </button>
+                            </form>
                             {% endif %}
                             
                             {% if inventory_check.status == 'completed' %}
@@ -138,16 +144,21 @@
                             {% endif %}
                             
                             {% if inventory_check.status == 'approved' %}
-                            <a href="{% url 'inventory_check_complete' check_id=inventory_check.id %}" class="btn btn-info">
-                                <i class="bi bi-check-circle"></i> 标记为已完成
-                            </a>
+                            <form action="{% url 'inventory_check_complete' check_id=inventory_check.id %}" method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-info">
+                                    <i class="bi bi-check-circle"></i> 标记为已完成
+                                </button>
+                            </form>
                             {% endif %}
                             
                             {% if inventory_check.status != 'approved' and inventory_check.status != 'cancelled' %}
-                            <a href="{% url 'inventory_check_cancel' check_id=inventory_check.id %}" class="btn btn-danger" 
-                               onclick="return confirm('确定要取消此盘点吗？')">
-                                <i class="bi bi-x-circle"></i> 取消
-                            </a>
+                            <form action="{% url 'inventory_check_cancel' check_id=inventory_check.id %}" method="post" class="d-inline" onsubmit="return confirm('确定要取消此盘点吗？')">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-danger">
+                                    <i class="bi bi-x-circle"></i> 取消
+                                </button>
+                            </form>
                             {% endif %}
                         </div>
                     </div>

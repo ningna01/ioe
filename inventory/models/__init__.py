@@ -20,6 +20,7 @@ from .inventory_check import InventoryCheck, InventoryCheckItem
 
 # 销售相关模型
 from .sales import Sale, SaleItem
+from .debt_order import DebtOrder
 
 # 通用模型
 from .common import OperationLog, SystemConfig
@@ -41,6 +42,7 @@ __all__ = [
     
     # 销售模型
     'Sale', 'SaleItem',
+    'DebtOrder',
     
     # 通用模型
     'OperationLog', 'SystemConfig',

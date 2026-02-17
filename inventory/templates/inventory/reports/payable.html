@@ -1,0 +1,168 @@
+{% extends "inventory/base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}欠款报表{% endblock %}
+
+{% block extra_head %}
+{% include "inventory/reports/_assets.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container report-page">
+    <div class="row mb-4 report-header">
+        <div class="col-md-8">
+            <h1 class="h2">欠款报表</h1>
+            <p class="text-muted">
+                日期范围: {{ start_date|date:"Y-m-d" }} 至 {{ end_date|date:"Y-m-d" }}
+            </p>
+            <p class="text-muted mb-0">仓库范围: {{ warehouse_scope_label }}</p>
+        </div>
+        <div class="col-md-4 text-md-end">
+            <a href="{% url 'reports_index' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 返回报表中心
+            </a>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card report-filter-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="h5 mb-0">设置报表参数</h3>
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#createDebtOrderModal">
+                        <i class="bi bi-plus-circle me-1"></i> 新增欠款订单
+                    </button>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="query">
+                        <div class="row">
+                            <div class="col-md-3">
+                                {{ form.start_date|as_crispy_field }}
+                            </div>
+                            <div class="col-md-3">
+                                {{ form.end_date|as_crispy_field }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">仓库</label>
+                                <select name="warehouse" class="form-select">
+                                    <option value="all" {% if selected_warehouse == 'all' %}selected{% endif %}>全部</option>
+                                    {% for warehouse in warehouses %}
+                                    <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id|stringformat:'s' %}selected{% endif %}>{{ warehouse.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary w-100">查询</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="report-kpi">
+                <p class="report-kpi__label">应付款总额</p>
+                <h3 class="report-kpi__value">¥{{ report_data.total_payable|floatformat:2 }}</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="report-kpi">
+                <p class="report-kpi__label">收款人数量</p>
+                <h3 class="report-kpi__value">{{ report_data.payee_count }}</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="report-kpi">
+                <p class="report-kpi__label">欠款订单数</p>
+                <h3 class="report-kpi__value">{{ report_data.total_orders }}</h3>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card report-table-card">
+                <div class="card-header">
+                    <h3 class="h5 mb-0">欠款明细（按收款人汇总）</h3>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>收款人</th>
+                                    <th class="text-end">应付款</th>
+                                    <th class="text-end">占比</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in report_data.rows %}
+                                <tr>
+                                    <td>{{ row.payee_name }}</td>
+                                    <td class="text-end">¥{{ row.payable_amount|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.ratio|floatformat:2 }}%</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="3" class="text-center py-4">当前筛选条件下暂无欠款数据</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="createDebtOrderModal" tabindex="-1" aria-labelledby="createDebtOrderModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="create_debt_order">
+                <input type="hidden" name="start_date" value="{{ start_date|date:'Y-m-d' }}">
+                <input type="hidden" name="end_date" value="{{ end_date|date:'Y-m-d' }}">
+                <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createDebtOrderModalLabel">新增欠款订单</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">收款人</label>
+                        <input type="text" class="form-control" name="payee_name" maxlength="120" placeholder="输入收款人名称" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">应付款</label>
+                        <input type="number" class="form-control" name="amount" min="0.01" step="0.01" placeholder="输入欠款金额" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">关联仓库</label>
+                        <select name="order_warehouse" class="form-select">
+                            <option value="">自动选择（当前范围默认仓库）</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id|stringformat:'s' %}selected{% endif %}>{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" name="remark" rows="2" placeholder="可选"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">保存订单</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

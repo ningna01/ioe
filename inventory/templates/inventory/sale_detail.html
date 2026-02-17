@@ -73,6 +73,12 @@
                         <span class="text-muted">客户:</span>
                         <span class="text-muted">散客</span>
                     </li>
+                    {% if sale.account_holder %}
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span class="text-muted">挂账人:</span>
+                        <span>{{ sale.account_holder }}</span>
+                    </li>
+                    {% endif %}
                     <li class="list-group-item d-flex justify-content-between">
                         <span class="text-muted">状态:</span>
                         {% if sale.status == 'DELETED' %}

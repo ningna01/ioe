@@ -3,12 +3,15 @@ Report views.
 """
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.contrib.contenttypes.models import ContentType
 from django.http import JsonResponse
 from django.utils import timezone
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 
 from .forms import DateRangeForm, TopProductsForm, InventoryTurnoverForm
-from .models import UserWarehouseAccess
+from .models import UserWarehouseAccess, DebtOrder, OperationLog
 from .services.report_service import ReportService
 from .services.export_service import ExportService
 from .services.warehouse_scope_service import WarehouseScopeService
@@ -636,6 +639,169 @@ def stock_in_report(request):
     return render(
         request,
         'inventory/reports/stock_in.html',
+        _append_scope_context(context, scope),
+    )
+
+
+@login_required
+@log_view_access('OTHER')
+@permission_required('view_reports')
+def receivable_report(request):
+    """收款报表：按挂账人统计未结算应收款。"""
+    scope = _resolve_report_scope(request)
+    warehouse_ids = scope['warehouse_ids']
+
+    if request.method == 'POST':
+        form = DateRangeForm(request.POST)
+        if form.is_valid():
+            start_date = form.cleaned_data['start_date']
+            end_date = form.cleaned_data['end_date']
+            report_data = ReportService.get_receivable_report(
+                start_date=start_date,
+                end_date=end_date,
+                warehouse_ids=warehouse_ids,
+            )
+            context = {
+                'form': form,
+                'start_date': start_date,
+                'end_date': end_date,
+                'report_data': report_data,
+            }
+            return render(
+                request,
+                'inventory/reports/receivable.html',
+                _append_scope_context(context, scope),
+            )
+
+    form = DateRangeForm(initial=_today_report_initial())
+    start_date = timezone.localdate()
+    end_date = start_date
+    report_data = ReportService.get_receivable_report(
+        start_date=start_date,
+        end_date=end_date,
+        warehouse_ids=warehouse_ids,
+    )
+    context = {
+        'form': form,
+        'start_date': start_date,
+        'end_date': end_date,
+        'report_data': report_data,
+    }
+    return render(
+        request,
+        'inventory/reports/receivable.html',
+        _append_scope_context(context, scope),
+    )
+
+
+@login_required
+@log_view_access('OTHER')
+@permission_required('view_reports')
+def payable_report(request):
+    """欠款报表：按收款人统计应付款，并支持新增欠款订单。"""
+    scope = _resolve_report_scope(request)
+    warehouse_ids = scope['warehouse_ids']
+    available_warehouses = scope['warehouses']
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or 'query').strip()
+        if action == 'create_debt_order':
+            payee_name = (request.POST.get('payee_name') or '').strip()
+            raw_amount = (request.POST.get('amount') or '').strip()
+            remark = (request.POST.get('remark') or '').strip()
+            order_warehouse_param = (request.POST.get('order_warehouse') or '').strip()
+
+            order_warehouse = None
+            warehouse_selection_invalid = False
+            if order_warehouse_param:
+                try:
+                    order_warehouse = available_warehouses.get(id=int(order_warehouse_param))
+                except (ValueError, TypeError, available_warehouses.model.DoesNotExist):
+                    messages.error(request, '新增欠款订单失败：仓库选择无效')
+                    warehouse_selection_invalid = True
+                    order_warehouse = None
+            elif scope.get('selected_warehouse') is not None:
+                order_warehouse = scope['selected_warehouse']
+            else:
+                order_warehouse = (
+                    WarehouseScopeService.get_default_warehouse(request.user)
+                    or available_warehouses.first()
+                )
+
+            if not payee_name:
+                messages.error(request, '新增欠款订单失败：收款人不能为空')
+            elif warehouse_selection_invalid:
+                pass
+            else:
+                try:
+                    amount = Decimal(raw_amount)
+                except (InvalidOperation, TypeError, ValueError):
+                    amount = Decimal('0.00')
+
+                if amount <= 0:
+                    messages.error(request, '新增欠款订单失败：应付款金额必须大于 0')
+                else:
+                    debt_order = DebtOrder.objects.create(
+                        payee_name=payee_name[:120],
+                        amount=amount,
+                        warehouse=order_warehouse,
+                        remark=remark,
+                        created_by=request.user,
+                        status='OPEN',
+                    )
+                    OperationLog.objects.create(
+                        operator=request.user,
+                        operation_type='OTHER',
+                        details=(
+                            f'创建欠款订单 #{debt_order.id}，收款人: {debt_order.payee_name}，'
+                            f'金额: {debt_order.amount}，仓库: '
+                            f'{debt_order.warehouse.name if debt_order.warehouse else "未指定"}；'
+                            f'来源: payable_report'
+                        ),
+                        related_object_id=debt_order.id,
+                        related_content_type=ContentType.objects.get_for_model(DebtOrder),
+                    )
+                    messages.success(request, f'欠款订单创建成功：#{debt_order.id}')
+                    return redirect('payable_report')
+
+        form = DateRangeForm(request.POST)
+        if form.is_valid():
+            start_date = form.cleaned_data['start_date']
+            end_date = form.cleaned_data['end_date']
+            report_data = ReportService.get_payable_report(
+                start_date=start_date,
+                end_date=end_date,
+                warehouse_ids=warehouse_ids,
+            )
+            context = {
+                'form': form,
+                'start_date': start_date,
+                'end_date': end_date,
+                'report_data': report_data,
+            }
+            return render(
+                request,
+                'inventory/reports/payable.html',
+                _append_scope_context(context, scope),
+            )
+
+    form = DateRangeForm(initial=_today_report_initial())
+    start_date = timezone.localdate()
+    end_date = start_date
+    report_data = ReportService.get_payable_report(
+        start_date=start_date,
+        end_date=end_date,
+        warehouse_ids=warehouse_ids,
+    )
+    context = {
+        'form': form,
+        'start_date': start_date,
+        'end_date': end_date,
+        'report_data': report_data,
+    }
+    return render(
+        request,
+        'inventory/reports/payable.html',
         _append_scope_context(context, scope),
     )
 

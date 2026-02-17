@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from inventory.models import (
     Product, WarehouseInventory,
-    Sale, SaleItem, InventoryTransaction, OperationLog
+    Sale, SaleItem, DebtOrder, InventoryTransaction, OperationLog
 )
 from inventory.utils.date_utils import get_period_boundaries
 
@@ -503,6 +503,135 @@ class ReportService:
             'stock_in_total_amount': totals['total_amount'] or Decimal('0.00'),
             'warehouse_total_quantity': warehouse_totals['total_quantity'] or 0,
             'warehouse_total_value': warehouse_totals['total_retail_value'] or Decimal('0.00'),
+        }
+
+    @staticmethod
+    def get_receivable_report(start_date=None, end_date=None, warehouse_ids=None):
+        """
+        获取收款报表数据（未结算订单应收统计）。
+
+        口径说明：
+        1) 仅统计状态为 `UNSETTLED` 的销售单；
+        2) 应收款 = 商品总额 - 定金；
+        3) 按挂账人聚合，空挂账人归类为“未填写”。
+        """
+        today = timezone.localdate()
+        if not start_date:
+            start_date = today
+        if not end_date:
+            end_date = today
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+        sales_query = Sale.objects.filter(
+            status='UNSETTLED',
+            created_at__range=(start_date, end_date_upper),
+        ).only('account_holder', 'total_amount', 'deposit_amount')
+        sales_query = _apply_warehouse_scope(sales_query, warehouse_ids)
+
+        buckets = {}
+        total_receivable = Decimal('0.00')
+        total_orders = 0
+        for sale in sales_query:
+            receivable_amount = _as_decimal(sale.total_amount) - _as_decimal(sale.deposit_amount)
+            if receivable_amount <= 0:
+                continue
+
+            holder = (sale.account_holder or '').strip() or '未填写'
+            bucket = buckets.setdefault(
+                holder,
+                {
+                    'account_holder': holder,
+                    'receivable_amount': Decimal('0.00'),
+                    'order_count': 0,
+                    'ratio': Decimal('0.00'),
+                }
+            )
+            bucket['receivable_amount'] += receivable_amount
+            bucket['order_count'] += 1
+            total_receivable += receivable_amount
+            total_orders += 1
+
+        rows = sorted(
+            buckets.values(),
+            key=lambda row: row['receivable_amount'],
+            reverse=True,
+        )
+        for row in rows:
+            if total_receivable > 0:
+                row['ratio'] = (row['receivable_amount'] / total_receivable) * Decimal('100')
+
+        return {
+            'rows': rows,
+            'total_receivable': total_receivable,
+            'total_orders': total_orders,
+            'account_holder_count': len(rows),
+        }
+
+    @staticmethod
+    def get_payable_report(start_date=None, end_date=None, warehouse_ids=None):
+        """
+        获取欠款报表数据（欠款订单应付款统计）。
+
+        口径说明：
+        1) 仅统计状态为 `OPEN` 的欠款订单；
+        2) 按收款人聚合应付款；
+        3) 空收款人归类为“未填写”。
+        """
+        today = timezone.localdate()
+        if not start_date:
+            start_date = today
+        if not end_date:
+            end_date = today
+
+        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
+        orders_query = DebtOrder.objects.filter(
+            status='OPEN',
+            created_at__range=(start_date, end_date_upper),
+        ).only('payee_name', 'amount', 'warehouse_id')
+
+        if warehouse_ids is not None:
+            if warehouse_ids:
+                orders_query = orders_query.filter(warehouse_id__in=warehouse_ids)
+            else:
+                orders_query = orders_query.none()
+
+        buckets = {}
+        total_payable = Decimal('0.00')
+        total_orders = 0
+        for order in orders_query:
+            payable_amount = _as_decimal(order.amount)
+            if payable_amount <= 0:
+                continue
+
+            payee = (order.payee_name or '').strip() or '未填写'
+            bucket = buckets.setdefault(
+                payee,
+                {
+                    'payee_name': payee,
+                    'payable_amount': Decimal('0.00'),
+                    'order_count': 0,
+                    'ratio': Decimal('0.00'),
+                }
+            )
+            bucket['payable_amount'] += payable_amount
+            bucket['order_count'] += 1
+            total_payable += payable_amount
+            total_orders += 1
+
+        rows = sorted(
+            buckets.values(),
+            key=lambda row: row['payable_amount'],
+            reverse=True,
+        )
+        for row in rows:
+            if total_payable > 0:
+                row['ratio'] = (row['payable_amount'] / total_payable) * Decimal('100')
+
+        return {
+            'rows': rows,
+            'total_payable': total_payable,
+            'total_orders': total_orders,
+            'payee_count': len(rows),
         }
     
     @staticmethod

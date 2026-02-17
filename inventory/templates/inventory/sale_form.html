@@ -261,6 +261,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const depositContainer = document.getElementById('deposit-container');
     const depositAmountDisplayInput = document.getElementById('deposit-amount-display');
     const depositAmountInput = document.getElementById('deposit-amount-input');
+    const accountHolderContainer = document.getElementById('account-holder-container');
+    const accountHolderInput = document.getElementById('account-holder');
     window.updateTotalsTimeout = null; // 用于节流 updateTotals
     
     // 商品搜索处理
@@ -315,11 +317,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (visible) {
             depositContainer.classList.remove('d-none');
+            if (accountHolderContainer) {
+                accountHolderContainer.classList.remove('d-none');
+            }
             depositAmountDisplayInput.focus();
         } else {
             depositContainer.classList.add('d-none');
             depositAmountDisplayInput.value = '';
             depositAmountInput.value = '0.00';
+            if (accountHolderContainer) {
+                accountHolderContainer.classList.add('d-none');
+            }
+            if (accountHolderInput) {
+                accountHolderInput.value = '';
+            }
         }
     }
 
@@ -909,6 +920,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             } else if (depositAmountInput) {
                 depositAmountInput.value = '0.00';
+                if (accountHolderInput) {
+                    accountHolderInput.value = '';
+                }
             }
             
             // 执行产品索引更新 - 创建隐藏字段
@@ -1167,12 +1181,16 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button type="button" class="settlement-btn active" data-settlement="completed">直接结账</button>
                             <button type="button" class="settlement-btn" data-settlement="unsettled">定金预定</button>
                         </div>
-                        <div id="deposit-container" class="deposit-input-group d-none">
-                            <label for="deposit-amount-display" class="form-label small text-muted mb-1">定金金额</label>
-                            <input type="number" id="deposit-amount-display" class="form-control form-control-sm" min="0" step="0.01" placeholder="输入定金金额">
-                            <div class="form-text">未结算订单不扣库存，销售额按定金入账。</div>
-                        </div>
+                    <div id="deposit-container" class="deposit-input-group d-none">
+                        <label for="deposit-amount-display" class="form-label small text-muted mb-1">定金金额</label>
+                        <input type="number" id="deposit-amount-display" class="form-control form-control-sm" min="0" step="0.01" placeholder="输入定金金额">
+                        <div class="form-text">未结算订单不扣库存，销售额按定金入账。</div>
                     </div>
+                    <div id="account-holder-container" class="form-group mt-2 d-none">
+                        <label for="account-holder" class="text-muted small">挂账人 (可选)</label>
+                        <input type="text" id="account-holder" name="account_holder" class="form-control form-control-sm" maxlength="120" placeholder="输入挂账人姓名或标识">
+                    </div>
+                </div>
 
                     <div class="form-group mb-3">
                         <label for="warehouse" class="text-muted small">销售仓库</label>

@@ -171,7 +171,7 @@ def sale_list(request):
 
     if not status_filter:
         status_filter = 'deleted' if legacy_sale_type == 'deleted' else 'completed'
-    if status_filter not in ['completed', 'unsettled', 'abandoned', 'deleted']:
+    if status_filter not in ['all', 'completed', 'unsettled', 'abandoned', 'deleted']:
         status_filter = 'completed'
 
     if not sale_type_filter:
@@ -183,7 +183,9 @@ def sale_list(request):
         amount_scope = 'retail'
 
     sales = base_sales
-    if status_filter == 'deleted':
+    if status_filter == 'all':
+        pass
+    elif status_filter == 'deleted':
         sales = sales.filter(status='DELETED')
     elif status_filter == 'abandoned':
         sales = sales.filter(status='ABANDONED')
@@ -371,6 +373,7 @@ def sale_create(request):
         if settlement_type not in ['completed', 'unsettled']:
             settlement_type = 'completed'
         is_unsettled_sale = settlement_type == 'unsettled'
+        account_holder = (request.POST.get('account_holder', '') or '').strip()
         
         # 获取前端提交的商品信息
         products_data = []
@@ -624,6 +627,7 @@ def sale_create(request):
             sale.operator = request.user
             sale.warehouse = selected_warehouse
             sale.status = 'UNSETTLED' if is_unsettled_sale else 'COMPLETED'
+            sale.account_holder = account_holder[:120] if is_unsettled_sale else ''
             
             # 设置金额
             sale.total_amount = total_amount

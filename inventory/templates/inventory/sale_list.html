@@ -61,6 +61,7 @@
                             <div class="input-group">
                                 <span class="input-group-text bg-primary text-white"><i class="bi bi-funnel"></i></span>
                                 <select class="form-select border-primary" id="statusFilter" name="status_filter">
+                                    <option value="all" {% if status_filter == 'all' %}selected{% endif %}>所有订单</option>
                                     <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>已完成</option>
                                     <option value="unsettled" {% if status_filter == 'unsettled' %}selected{% endif %}>未结算</option>
                                     <option value="abandoned" {% if status_filter == 'abandoned' %}selected{% endif %}>已放弃</option>
@@ -99,7 +100,7 @@
                                 <th>销售日期</th>
                                 <th>销售方式</th>
                                 <th>金额</th>
-                                <th>备注</th>
+                                <th>挂账人</th>
                                 <th>状态</th>
                                 <th>操作</th>
                             </tr>
@@ -147,8 +148,8 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if sale.remark %}
-                                    <div class="small text-break" title="{{ sale.remark }}">{{ sale.remark }}</div>
+                                    {% if sale.account_holder %}
+                                    <div class="small text-break" title="{{ sale.account_holder }}">{{ sale.account_holder }}</div>
                                     {% else %}
                                     <span class="text-muted small">-</span>
                                     {% endif %}
