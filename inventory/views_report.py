@@ -646,44 +646,14 @@ def stock_in_report(request):
 @log_view_access('OTHER')
 @permission_required('view_reports')
 def receivable_report(request):
-    """应收款报表：按挂账人统计未结算应收款。"""
+    """应收款报表：按挂账人统计未结算应收款（不按日期筛选）。"""
     scope = _resolve_report_scope(request)
     warehouse_ids = scope['warehouse_ids']
 
-    if request.method == 'POST':
-        form = DateRangeForm(request.POST)
-        if form.is_valid():
-            start_date = form.cleaned_data['start_date']
-            end_date = form.cleaned_data['end_date']
-            report_data = ReportService.get_receivable_report(
-                start_date=start_date,
-                end_date=end_date,
-                warehouse_ids=warehouse_ids,
-            )
-            context = {
-                'form': form,
-                'start_date': start_date,
-                'end_date': end_date,
-                'report_data': report_data,
-            }
-            return render(
-                request,
-                'inventory/reports/receivable.html',
-                _append_scope_context(context, scope),
-            )
-
-    form = DateRangeForm(initial=_today_report_initial())
-    start_date = timezone.localdate()
-    end_date = start_date
     report_data = ReportService.get_receivable_report(
-        start_date=start_date,
-        end_date=end_date,
         warehouse_ids=warehouse_ids,
     )
     context = {
-        'form': form,
-        'start_date': start_date,
-        'end_date': end_date,
         'report_data': report_data,
     }
     return render(
@@ -697,7 +667,7 @@ def receivable_report(request):
 @log_view_access('OTHER')
 @permission_required('view_reports')
 def payable_report(request):
-    """应付款报表：按供货商统计应付款，并支持软删除应付款订单。"""
+    """应付款报表：按供货商统计应付款，并支持软删除应付款订单（不按日期筛选）。"""
     scope = _resolve_report_scope(request)
     warehouse_ids = scope['warehouse_ids']
     available_warehouses = scope['warehouses']
@@ -738,39 +708,10 @@ def payable_report(request):
                         messages.success(request, f'应付款订单 #{debt_order.id} 已删除（软删除）')
                         return redirect('payable_report')
 
-        form = DateRangeForm(request.POST)
-        if form.is_valid():
-            start_date = form.cleaned_data['start_date']
-            end_date = form.cleaned_data['end_date']
-            report_data = ReportService.get_payable_report(
-                start_date=start_date,
-                end_date=end_date,
-                warehouse_ids=warehouse_ids,
-            )
-            context = {
-                'form': form,
-                'start_date': start_date,
-                'end_date': end_date,
-                'report_data': report_data,
-            }
-            return render(
-                request,
-                'inventory/reports/payable.html',
-                _append_scope_context(context, scope),
-            )
-
-    form = DateRangeForm(initial=_today_report_initial())
-    start_date = timezone.localdate()
-    end_date = start_date
     report_data = ReportService.get_payable_report(
-        start_date=start_date,
-        end_date=end_date,
         warehouse_ids=warehouse_ids,
     )
     context = {
-        'form': form,
-        'start_date': start_date,
-        'end_date': end_date,
         'report_data': report_data,
     }
     return render(

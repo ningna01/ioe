@@ -57,7 +57,6 @@ urlpatterns = [
     path('api/product/search/barcode/<str:barcode>/', barcode_views.product_by_barcode, name='product_search_by_barcode'),
     path('api/product/search/', barcode_views.product_search_api, name='product_search_api'),
     
-    path('inventory/create/', inventory_views.inventory_transaction_create, name='inventory_create'),
     path('inventory/in/', inventory_views.inventory_in, name='inventory_in'),
     path('inventory/import/', inventory_views.inventory_import, name='inventory_import'),
     path('inventory/export/', inventory_views.inventory_export, name='inventory_export'),

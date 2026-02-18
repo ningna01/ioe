@@ -79,9 +79,8 @@ def _is_sale_deleted(sale):
 def _sale_needs_inventory_revert(sale):
     """
     仅对已扣库存的单据执行回补。
-    兼容旧流程中的 DRAFT 状态单据。
     """
-    return _get_sale_status(sale) in {'COMPLETED', 'DRAFT'}
+    return _is_sale_completed(sale)
 
 
 def _get_sale_for_user_or_404(user, sale_id):

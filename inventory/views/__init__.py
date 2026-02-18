@@ -71,7 +71,6 @@ from .inventory import (
     inventory_in,
     inventory_out,
     inventory_adjust,
-    inventory_transaction_create,
 )
 
 # 导入报表相关视图（member_report已禁用）

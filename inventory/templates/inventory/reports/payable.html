@@ -12,9 +12,7 @@
     <div class="row mb-4 report-header">
         <div class="col-md-8">
             <h1 class="h2">应付款报表</h1>
-            <p class="text-muted">
-                日期范围: {{ start_date|date:"Y-m-d" }} 至 {{ end_date|date:"Y-m-d" }}
-            </p>
+            <p class="text-muted">订单范围: 全部未结清应付款订单</p>
             <p class="text-muted mb-0">仓库范围: {{ warehouse_scope_label }}</p>
         </div>
         <div class="col-md-4 text-md-end">
@@ -36,13 +34,7 @@
                         {% csrf_token %}
                         <input type="hidden" name="action" value="query">
                         <div class="row">
-                            <div class="col-md-3">
-                                {{ form.start_date|as_crispy_field }}
-                            </div>
-                            <div class="col-md-3">
-                                {{ form.end_date|as_crispy_field }}
-                            </div>
-                            <div class="col-md-4">
+                            <div class="col-md-10">
                                 <label class="form-label">仓库</label>
                                 <select name="warehouse" class="form-select">
                                     <option value="all" {% if selected_warehouse == 'all' %}selected{% endif %}>全部</option>
@@ -152,8 +144,6 @@
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="delete_payable_order">
                                             <input type="hidden" name="order_id" value="{{ order.id }}">
-                                            <input type="hidden" name="start_date" value="{{ start_date|date:'Y-m-d' }}">
-                                            <input type="hidden" name="end_date" value="{{ end_date|date:'Y-m-d' }}">
                                             <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
                                             <input type="hidden" name="delete_reason" value="报表中心删除">
                                             <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('确认删除应付款订单 #{{ order.id }} 吗？此操作为软删除并保留审计记录。')">

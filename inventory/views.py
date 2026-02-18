@@ -8,7 +8,6 @@ from inventory.views.inventory import (
     inventory_in,
     inventory_list,
     inventory_out,
-    inventory_transaction_create,
     inventory_transaction_list,
     inventory_update_warning_level,
 )
@@ -39,7 +38,6 @@ __all__ = [
     'inventory_in',
     'inventory_list',
     'inventory_out',
-    'inventory_transaction_create',
     'inventory_transaction_list',
     'inventory_update_warning_level',
     'product_by_barcode',

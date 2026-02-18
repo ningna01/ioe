@@ -20,6 +20,16 @@ class InventoryCheckService:
     """Service for inventory checking operations."""
 
     @staticmethod
+    def _reload_inventory_check_for_update(inventory_check):
+        if not inventory_check or not inventory_check.pk:
+            raise InventoryValidationError("盘点单不存在，无法执行该操作")
+
+        try:
+            return InventoryCheck.objects.select_for_update().select_related('warehouse').get(pk=inventory_check.pk)
+        except InventoryCheck.DoesNotExist as exc:
+            raise InventoryValidationError("盘点单不存在，无法执行该操作") from exc
+
+    @staticmethod
     def _resolve_check_warehouse(inventory_check):
         warehouse = inventory_check.warehouse
         if warehouse is None:
@@ -193,14 +203,14 @@ class InventoryCheckService:
         Returns:
             InventoryCheck: The updated inventory check.
         """
+        inventory_check = InventoryCheckService._reload_inventory_check_for_update(inventory_check)
         warehouse = InventoryCheckService._resolve_check_warehouse(inventory_check)
-        if inventory_check.status not in ('in_progress', 'approved'):
-            raise InventoryValidationError("只有进行中或已审核的盘点单可以标记为完成")
+        if inventory_check.status != 'in_progress':
+            raise InventoryValidationError("只有进行中的盘点单可以标记为完成")
 
-        if inventory_check.status == 'in_progress':
-            unchecked_items = inventory_check.items.filter(actual_quantity__isnull=True).count()
-            if unchecked_items > 0:
-                raise InventoryValidationError(f"还有 {unchecked_items} 个商品未盘点完成")
+        unchecked_items = inventory_check.items.filter(actual_quantity__isnull=True).count()
+        if unchecked_items > 0:
+            raise InventoryValidationError(f"还有 {unchecked_items} 个商品未盘点完成")
 
         inventory_check.status = 'completed'
         inventory_check.completed_at = timezone.now()
@@ -233,6 +243,7 @@ class InventoryCheckService:
         Returns:
             InventoryCheck: The updated inventory check.
         """
+        inventory_check = InventoryCheckService._reload_inventory_check_for_update(inventory_check)
         warehouse = InventoryCheckService._resolve_check_warehouse(inventory_check)
         if inventory_check.status != 'completed':
             raise InventoryValidationError("只有已完成的盘点单可以审核")

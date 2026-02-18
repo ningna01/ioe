@@ -12,9 +12,7 @@
     <div class="row mb-4 report-header">
         <div class="col-md-8">
             <h1 class="h2">应收款报表</h1>
-            <p class="text-muted">
-                日期范围: {{ start_date|date:"Y-m-d" }} 至 {{ end_date|date:"Y-m-d" }}
-            </p>
+            <p class="text-muted">订单范围: 全部未结算订单</p>
             <p class="text-muted mb-0">仓库范围: {{ warehouse_scope_label }}</p>
         </div>
         <div class="col-md-4 text-md-end">
@@ -34,13 +32,7 @@
                     <form method="post">
                         {% csrf_token %}
                         <div class="row">
-                            <div class="col-md-3">
-                                {{ form.start_date|as_crispy_field }}
-                            </div>
-                            <div class="col-md-3">
-                                {{ form.end_date|as_crispy_field }}
-                            </div>
-                            <div class="col-md-4">
+                            <div class="col-md-10">
                                 <label class="form-label">仓库</label>
                                 <select name="warehouse" class="form-select">
                                     <option value="all" {% if selected_warehouse == 'all' %}selected{% endif %}>全部</option>
@@ -106,6 +98,64 @@
                                 {% empty %}
                                 <tr>
                                     <td colspan="3" class="text-center py-4">当前筛选条件下暂无未结算应收数据</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card report-table-card">
+                <div class="card-header">
+                    <h3 class="h5 mb-0">未结算订单明细</h3>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>订单编号</th>
+                                    <th>挂账人</th>
+                                    <th class="text-end">商品总额</th>
+                                    <th class="text-end">已收定金</th>
+                                    <th class="text-end">应收款</th>
+                                    <th>仓库</th>
+                                    <th>创建时间</th>
+                                    <th class="text-end">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for order in report_data.open_orders %}
+                                <tr>
+                                    <td>#{{ order.id }}</td>
+                                    <td>{{ order.account_holder }}</td>
+                                    <td class="text-end">¥{{ order.total_amount|floatformat:2 }}</td>
+                                    <td class="text-end">¥{{ order.deposit_amount|floatformat:2 }}</td>
+                                    <td class="text-end">¥{{ order.receivable_amount|floatformat:2 }}</td>
+                                    <td>{{ order.warehouse_name }}</td>
+                                    <td>{{ order.created_at|date:"Y-m-d H:i" }}</td>
+                                    <td class="text-end">
+                                        <div class="btn-group">
+                                            <a href="{% url 'sale_detail' order.id %}" class="btn btn-sm btn-outline-info" title="查看详情">
+                                                <i class="bi bi-eye"></i>
+                                            </a>
+                                            <a href="{% url 'sale_complete' order.id %}" class="btn btn-sm btn-outline-success" title="完成结算">
+                                                <i class="bi bi-check2-circle"></i>
+                                            </a>
+                                            <a href="{% url 'sale_cancel' order.id %}" class="btn btn-sm btn-outline-danger" title="删除订单">
+                                                <i class="bi bi-trash"></i>
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="8" class="text-center py-4">当前仓库范围下暂无未结算订单</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

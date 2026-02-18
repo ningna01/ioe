@@ -508,24 +508,24 @@ class ReportService:
     @staticmethod
     def get_receivable_report(start_date=None, end_date=None, warehouse_ids=None):
         """
-        获取应收款报表数据（未结算订单应收统计）。
+        获取应收款报表数据（未结算订单应收统计，不按日期筛选）。
 
         口径说明：
         1) 仅统计状态为 `UNSETTLED` 的销售单；
         2) 应收款 = 商品总额 - 定金；
         3) 按挂账人聚合，空挂账人归类为“未填写”。
         """
-        today = timezone.localdate()
-        if not start_date:
-            start_date = today
-        if not end_date:
-            end_date = today
-
-        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
         sales_query = Sale.objects.filter(
             status='UNSETTLED',
-            created_at__range=(start_date, end_date_upper),
-        ).only('account_holder', 'total_amount', 'deposit_amount')
+        ).select_related('warehouse').only(
+            'id',
+            'account_holder',
+            'total_amount',
+            'deposit_amount',
+            'created_at',
+            'warehouse__name',
+            'status',
+        )
         sales_query = _apply_warehouse_scope(sales_query, warehouse_ids)
 
         buckets = {}
@@ -560,34 +560,46 @@ class ReportService:
             if total_receivable > 0:
                 row['ratio'] = (row['receivable_amount'] / total_receivable) * Decimal('100')
 
+        open_orders = []
+        for sale in sales_query.order_by('-created_at')[:200]:
+            receivable_amount = _as_decimal(sale.total_amount) - _as_decimal(sale.deposit_amount)
+            if receivable_amount <= 0:
+                continue
+            open_orders.append(
+                {
+                    'id': sale.id,
+                    'account_holder': (sale.account_holder or '').strip() or '未填写',
+                    'total_amount': _as_decimal(sale.total_amount),
+                    'deposit_amount': _as_decimal(sale.deposit_amount),
+                    'receivable_amount': receivable_amount,
+                    'warehouse_name': sale.warehouse.name if sale.warehouse else '未指定',
+                    'created_at': sale.created_at,
+                    'status': sale.status,
+                    'status_display': sale.get_status_display(),
+                }
+            )
+
         return {
             'rows': rows,
             'total_receivable': total_receivable,
             'total_orders': total_orders,
             'account_holder_count': len(rows),
+            'open_orders': open_orders,
         }
 
     @staticmethod
     def get_payable_report(start_date=None, end_date=None, warehouse_ids=None):
         """
-        获取应付款报表数据（应付款订单应付统计）。
+        获取应付款报表数据（应付款订单应付统计，不按日期筛选）。
 
         口径说明：
         1) 仅统计状态为 `OPEN` 且未软删除的应付款订单；
         2) 按供货商聚合应付款；
         3) 供货商为空时归类为“未填写”。
         """
-        today = timezone.localdate()
-        if not start_date:
-            start_date = today
-        if not end_date:
-            end_date = today
-
-        start_date, end_date_upper = _normalize_date_range(start_date, end_date)
         orders_query = DebtOrder.objects.filter(
             status='OPEN',
             is_deleted=False,
-            created_at__range=(start_date, end_date_upper),
         ).select_related('supplier', 'warehouse').only(
             'supplier__name',
             'amount',

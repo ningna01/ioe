@@ -143,15 +143,6 @@
                             </a>
                             {% endif %}
                             
-                            {% if inventory_check.status == 'approved' %}
-                            <form action="{% url 'inventory_check_complete' check_id=inventory_check.id %}" method="post" class="d-inline">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-info">
-                                    <i class="bi bi-check-circle"></i> 标记为已完成
-                                </button>
-                            </form>
-                            {% endif %}
-                            
                             {% if inventory_check.status != 'approved' and inventory_check.status != 'cancelled' %}
                             <form action="{% url 'inventory_check_cancel' check_id=inventory_check.id %}" method="post" class="d-inline" onsubmit="return confirm('确定要取消此盘点吗？')">
                                 {% csrf_token %}
