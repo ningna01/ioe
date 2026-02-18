@@ -12,6 +12,7 @@ from inventory.models import (
     Product,
     Sale,
     SaleItem,
+    Supplier,
     Warehouse,
     WarehouseInventory,
     update_inventory,
@@ -101,6 +102,11 @@ class Command(BaseCommand):
 
     def create_products(self, categories, num_products, operator, warehouse):
         products = []
+        supplier_pool = []
+        for supplier_name in ['示例供货商A', '示例供货商B', '示例供货商C']:
+            supplier, _ = Supplier.objects.get_or_create(name=supplier_name, defaults={'is_active': True})
+            supplier_pool.append(supplier)
+
         for i in range(num_products):
             category = random.choice(categories)
             price = Decimal(str(round(random.uniform(20, 500), 2)))
@@ -114,7 +120,7 @@ class Command(BaseCommand):
                 cost=cost,
                 wholesale_price=(price * Decimal('0.85')).quantize(Decimal('0.01')),
                 specification=random.choice(['标准', '加大', '礼盒', '经济装']),
-                manufacturer=random.choice(['供应商A', '供应商B', '供应商C']),
+                supplier=random.choice(supplier_pool),
                 color=random.choice(['黑色', '白色', '蓝色', '红色']),
                 size=random.choice(['S', 'M', 'L', 'XL', '160L']),
                 is_active=True,

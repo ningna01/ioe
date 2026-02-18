@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal
 from django import forms
 from django.forms import inlineformset_factory
 from inventory.models import Product, Category, ProductImage, ProductBatch, Supplier
@@ -85,10 +86,54 @@ class ProductForm(forms.ModelForm):
             'aria-label': '初始入库数量'
         })
     )
+
+    settlement_mode = forms.ChoiceField(
+        label='采购结算方式',
+        required=False,
+        initial='CASH_SETTLED',
+        choices=[
+            ('CASH_SETTLED', '现金结清'),
+            ('CREDIT_PAYABLE', '挂账应付'),
+        ],
+        widget=forms.Select(attrs={
+            'class': 'form-control form-select',
+            'aria-label': '采购结算方式',
+        }),
+        help_text='选择“挂账应付”时，必须填写应付款金额。',
+    )
+
+    payable_amount = forms.DecimalField(
+        label='应付款金额',
+        required=False,
+        min_value=Decimal('0.01'),
+        decimal_places=2,
+        max_digits=10,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'step': '0.01',
+            'min': '0.01',
+            'placeholder': '挂账时必填',
+            'inputmode': 'decimal',
+            'aria-label': '应付款金额',
+        }),
+    )
+
+    supplier_name = forms.CharField(
+        label='供货商（可输入）',
+        required=False,
+        max_length=100,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': '可直接输入新供货商名称',
+            'list': 'supplier-suggestions',
+            'aria-label': '供货商（可输入）',
+        }),
+        help_text='可直接输入供货商名称，支持从已有供货商名称自动提示中选择。',
+    )
     
     class Meta:
         model = Product
-        fields = ['barcode', 'name', 'category', 'color', 'size', 'description', 'price', 'cost', 'wholesale_price', 'image', 'specification', 'manufacturer', 'is_active']
+        fields = ['barcode', 'name', 'category', 'color', 'size', 'description', 'price', 'cost', 'wholesale_price', 'image', 'specification', 'supplier', 'is_active']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '请输入商品名称', 'aria-label': '商品名称'}),
@@ -96,7 +141,7 @@ class ProductForm(forms.ModelForm):
             'cost': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '成本价', 'inputmode': 'decimal', 'aria-label': '成本价'}),
             'wholesale_price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': '批发价（可选）', 'inputmode': 'decimal', 'aria-label': '批发价'}),
             'specification': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '规格', 'aria-label': '规格'}),
-            'manufacturer': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '制造商', 'aria-label': '制造商'}),
+            'supplier': forms.Select(attrs={'class': 'form-control form-select', 'aria-label': '供货商'}),
             'category': forms.Select(attrs={'class': 'form-control form-select', 'aria-label': '商品分类'}),
             'image': forms.FileInput(attrs={'class': 'form-control', 'accept': 'image/*', 'aria-label': '商品图片'}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input', 'aria-label': '是否启用'}),
@@ -196,17 +241,63 @@ class ProductForm(forms.ModelForm):
         # 如果提供了批发价，建议批发价小于等于零售价（警告而非错误）
         if wholesale_price is not None and price is not None and wholesale_price > price:
             self.add_warning = '批发价大于零售价，请确认无误'
+
+        settlement_mode = cleaned_data.get('settlement_mode') or 'CASH_SETTLED'
+        payable_amount = cleaned_data.get('payable_amount')
+        supplier = cleaned_data.get('supplier')
+        supplier_name = (cleaned_data.get('supplier_name') or '').strip()
+        initial_quantity = cleaned_data.get('initial_quantity') or 0
+
+        if supplier_name:
+            supplier, _ = Supplier.objects.get_or_create(
+                name=supplier_name,
+                defaults={'is_active': True},
+            )
+            if not supplier.is_active:
+                supplier.is_active = True
+                supplier.save(update_fields=['is_active'])
+            cleaned_data['supplier'] = supplier
+
+        if settlement_mode == 'CREDIT_PAYABLE':
+            if initial_quantity <= 0:
+                self.add_error('initial_quantity', '挂账采购必须填写大于 0 的初始入库数量')
+            if not supplier:
+                self.add_error('supplier_name', '挂账采购必须填写供货商')
+            if payable_amount is None or payable_amount <= 0:
+                self.add_error('payable_amount', '挂账采购必须填写大于 0 的应付款金额')
             
         return cleaned_data
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        supplier_queryset = Supplier.objects.filter(is_active=True).order_by('name')
+        self.fields['supplier'].queryset = supplier_queryset
+        self.fields['supplier'].empty_label = '请选择已存在供货商（可选）'
+        self.supplier_suggestions = list(supplier_queryset.values_list('name', flat=True))
+
+        if self.instance and self.instance.pk and self.instance.supplier:
+            self.fields['supplier_name'].initial = self.instance.supplier.name
+        else:
+            initial_supplier = self.initial.get('supplier')
+            try:
+                supplier_id = int(initial_supplier) if initial_supplier else None
+            except (TypeError, ValueError):
+                supplier_id = None
+            if supplier_id:
+                supplier_obj = supplier_queryset.filter(id=supplier_id).first()
+                if supplier_obj:
+                    self.fields['supplier_name'].initial = supplier_obj.name
+
         self.color_suggestions = self._COLOR_SUGGESTIONS
         self.size_suggestions = self._SIZE_SUGGESTIONS
         # 如果是编辑模式（有instance且已保存），隐藏初始数量字段
         if self.instance and self.instance.pk:
             if 'initial_quantity' in self.fields:
                 del self.fields['initial_quantity']
+            if 'settlement_mode' in self.fields:
+                del self.fields['settlement_mode']
+            if 'payable_amount' in self.fields:
+                del self.fields['payable_amount']
 
 
 class CategoryForm(forms.ModelForm):

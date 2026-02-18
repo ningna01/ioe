@@ -195,6 +195,26 @@ document.addEventListener('DOMContentLoaded', function() {
             productPicker.insertAdjacentElement('afterend', feedback);
         }
     });
+
+    const settlementSelect = document.getElementById('id_settlement_mode');
+    const payableInput = document.getElementById('id_payable_amount');
+    const payableWrapper = payableInput ? payableInput.closest('.mb-3') : null;
+
+    const togglePayableField = function() {
+        if (!settlementSelect || !payableWrapper) {
+            return;
+        }
+        const needPayable = settlementSelect.value === 'CREDIT_PAYABLE';
+        payableWrapper.style.display = needPayable ? '' : 'none';
+        if (!needPayable && payableInput) {
+            payableInput.value = '';
+        }
+    };
+
+    if (settlementSelect && payableWrapper) {
+        togglePayableField();
+        settlementSelect.addEventListener('change', togglePayableField);
+    }
 });
 </script>
 {% endblock %}

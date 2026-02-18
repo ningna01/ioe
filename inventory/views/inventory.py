@@ -1,10 +1,13 @@
 """
 库存管理视图
 """
+from decimal import Decimal, InvalidOperation
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponse
 from django.contrib import messages
+from django.db import transaction
 from django.db.models import Q, Sum, F
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -17,9 +20,10 @@ from inventory.models import (
     Product, InventoryTransaction,
     Warehouse, WarehouseInventory,
     OperationLog, StockAlert, check_inventory,
-    update_inventory, Category, UserWarehouseAccess
+    update_inventory, Category, UserWarehouseAccess, Supplier
 )
 from inventory.forms import InventoryTransactionForm
+from inventory.services.payable_service import PayableService
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 
 
@@ -111,6 +115,13 @@ def _normalize_upload_cell(value):
     if value is None:
         return ''
     return str(value).strip()
+
+
+def _normalize_settlement_mode(value):
+    normalized = _normalize_upload_cell(value).lower()
+    if normalized in {'credit', 'credit_payable', '挂账', '挂账应付', 'debt'}:
+        return 'CREDIT_PAYABLE'
+    return 'CASH_SETTLED'
 
 
 def _read_tabular_upload(uploaded_file):
@@ -552,6 +563,9 @@ def inventory_import(request):
             barcode = _normalize_upload_cell(row.get('barcode'))
             quantity_raw = _normalize_upload_cell(row.get('quantity'))
             warehouse_code = _normalize_upload_cell(row.get('warehouse_code') or row.get('warehouse'))
+            supplier_token = _normalize_upload_cell(row.get('supplier') or row.get('supplier_name'))
+            settlement_mode = _normalize_settlement_mode(row.get('settlement_mode'))
+            payable_raw = _normalize_upload_cell(row.get('payable_amount') or row.get('amount_due'))
             user_note = _normalize_upload_cell(row.get('notes') or row.get('remark'))
 
             if not barcode:
@@ -590,38 +604,93 @@ def inventory_import(request):
                 failed_rows.append((row_index, '当前用户无可用仓库，请补充 warehouse_code'))
                 continue
 
+            supplier = None
+            if supplier_token:
+                if supplier_token.isdigit():
+                    supplier = Supplier.objects.filter(id=int(supplier_token), is_active=True).first()
+                else:
+                    supplier = Supplier.objects.filter(name=supplier_token).first()
+                    if supplier is None:
+                        supplier = Supplier.objects.create(name=supplier_token, is_active=True)
+            if supplier is None and product.supplier_id:
+                supplier = product.supplier
+
+            payable_amount = Decimal('0.00')
+            if settlement_mode == 'CREDIT_PAYABLE':
+                if supplier is None:
+                    failed_count += 1
+                    failed_rows.append((row_index, '挂账入库必须填写 supplier（或商品已绑定供货商）'))
+                    continue
+                if not payable_raw:
+                    failed_count += 1
+                    failed_rows.append((row_index, '挂账入库必须填写 payable_amount'))
+                    continue
+                try:
+                    payable_amount = Decimal(payable_raw)
+                except (InvalidOperation, TypeError, ValueError):
+                    failed_count += 1
+                    failed_rows.append((row_index, 'payable_amount 格式无效'))
+                    continue
+                if payable_amount <= 0:
+                    failed_count += 1
+                    failed_rows.append((row_index, 'payable_amount 必须大于 0'))
+                    continue
+
             notes = _build_inventory_notes(
                 source='inventory_import',
                 intent='bulk_in',
                 user_notes=user_note,
-                extra_context={'row': row_index},
+                extra_context={
+                    'row': row_index,
+                    'settlement_mode': settlement_mode,
+                    'supplier_id': supplier.id if supplier else '',
+                    'payable_amount': payable_amount if settlement_mode == 'CREDIT_PAYABLE' else '',
+                },
             )
-            success, inventory_obj, result = update_inventory(
-                product=product,
-                warehouse=target_warehouse,
-                quantity=quantity,
-                transaction_type='IN',
-                operator=request.user,
-                notes=notes,
-            )
-            if not success:
-                failed_count += 1
-                failed_rows.append((row_index, str(result)))
-                continue
+            try:
+                with transaction.atomic():
+                    success, inventory_obj, result = update_inventory(
+                        product=product,
+                        warehouse=target_warehouse,
+                        quantity=quantity,
+                        transaction_type='IN',
+                        operator=request.user,
+                        notes=notes,
+                    )
+                    if not success:
+                        raise ValueError(str(result))
 
-            transaction_obj = result
-            _create_inventory_operation_log(
-                operator=request.user,
-                action='批量入库',
-                product=product,
-                warehouse=target_warehouse,
-                requested_quantity=quantity,
-                delta_quantity=quantity,
-                current_quantity=inventory_obj.quantity,
-                transaction=transaction_obj,
-                source='inventory_import',
-            )
-            success_count += 1
+                    transaction_obj = result
+                    _create_inventory_operation_log(
+                        operator=request.user,
+                        action='批量入库',
+                        product=product,
+                        warehouse=target_warehouse,
+                        requested_quantity=quantity,
+                        delta_quantity=quantity,
+                        current_quantity=inventory_obj.quantity,
+                        transaction=transaction_obj,
+                        source='inventory_import',
+                    )
+
+                    if settlement_mode == 'CREDIT_PAYABLE':
+                        PayableService.create_payable_order(
+                            supplier=supplier,
+                            amount=payable_amount,
+                            created_by=request.user,
+                            warehouse=target_warehouse,
+                            source_type='INVENTORY_IMPORT',
+                            source_id=transaction_obj.id,
+                            settlement_mode='CREDIT_PAYABLE',
+                            remark=(
+                                f'批量入库挂账应付: transaction_id={transaction_obj.id}; '
+                                f'product={product.name}; row={row_index}'
+                            ),
+                        )
+                success_count += 1
+            except Exception as exc:
+                failed_count += 1
+                failed_rows.append((row_index, str(exc)))
 
         if success_count:
             messages.success(request, f'批量入库完成：成功 {success_count} 条，失败 {failed_count} 条')
@@ -659,52 +728,81 @@ def inventory_in(request):
             product = form.cleaned_data['product']
             warehouse = form.cleaned_data['warehouse']
             quantity = form.cleaned_data['quantity']
+            supplier = form.cleaned_data.get('supplier')
+            settlement_mode = form.cleaned_data.get('settlement_mode') or 'CASH_SETTLED'
+            payable_amount = form.cleaned_data.get('payable_amount') or Decimal('0.00')
             notes = _build_inventory_notes(
                 source='inventory_in',
                 intent='manual_in',
                 user_notes=form.cleaned_data['notes'],
+                extra_context={
+                    'settlement_mode': settlement_mode,
+                    'supplier_id': supplier.id if supplier else '',
+                    'payable_amount': payable_amount if settlement_mode == 'CREDIT_PAYABLE' else '',
+                },
             )
-            success, inventory, result = update_inventory(
-                product=product,
-                warehouse=warehouse,
-                quantity=quantity,
-                transaction_type='IN',
-                operator=request.user,
-                notes=notes
-            )
-            if success:
-                transaction = result
-                _create_inventory_operation_log(
-                    operator=request.user,
-                    action='入库',
-                    product=product,
-                    warehouse=warehouse,
-                    requested_quantity=quantity,
-                    delta_quantity=quantity,
-                    current_quantity=inventory.quantity,
-                    transaction=transaction,
-                    source='inventory_in',
-                )
-                messages.success(
-                    request,
-                    _build_inventory_success_message(
+            try:
+                with transaction.atomic():
+                    success, inventory, result = update_inventory(
+                        product=product,
+                        warehouse=warehouse,
+                        quantity=quantity,
+                        transaction_type='IN',
+                        operator=request.user,
+                        notes=notes
+                    )
+                    if not success:
+                        raise ValueError(str(result))
+
+                    stock_transaction = result
+                    _create_inventory_operation_log(
+                        operator=request.user,
                         action='入库',
                         product=product,
                         warehouse=warehouse,
+                        requested_quantity=quantity,
                         delta_quantity=quantity,
                         current_quantity=inventory.quantity,
+                        transaction=stock_transaction,
+                        source='inventory_in',
+                    )
+
+                    if settlement_mode == 'CREDIT_PAYABLE':
+                        PayableService.create_payable_order(
+                            supplier=supplier,
+                            amount=payable_amount,
+                            created_by=request.user,
+                            warehouse=warehouse,
+                            source_type='INVENTORY_IN',
+                            source_id=stock_transaction.id,
+                            settlement_mode='CREDIT_PAYABLE',
+                            remark=(
+                                f'手工入库挂账应付: transaction_id={stock_transaction.id}; '
+                                f'product={product.name}; quantity={quantity}'
+                            ),
+                        )
+            except Exception as exc:
+                messages.error(
+                    request,
+                    _build_inventory_failure_message(
+                        action='入库',
+                        product=product,
+                        warehouse=warehouse,
+                        reason=exc,
                     ),
                 )
-                return redirect('inventory_list')
-            messages.error(
-                request,
-                _build_inventory_failure_message(
+            else:
+                success_message = _build_inventory_success_message(
                     action='入库',
                     product=product,
                     warehouse=warehouse,
-                    reason=result,
-                ),
-            )
+                    delta_quantity=quantity,
+                    current_quantity=inventory.quantity,
+                )
+                if settlement_mode == 'CREDIT_PAYABLE':
+                    success_message += f'；已登记应付款 ¥{payable_amount:.2f}'
+                messages.success(request, success_message)
+                return redirect('inventory_list')
     else:
         form = InventoryTransactionForm(
             user=request.user,

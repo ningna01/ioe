@@ -15,10 +15,13 @@ from inventory.models import (
     Category,
     ProductImage,
     ProductBatch,
+    Supplier,
     Warehouse,
     WarehouseInventory,
     UserWarehouseAccess,
+    update_inventory,
 )
+from inventory.services.payable_service import PayableService
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 
 
@@ -93,6 +96,13 @@ def _parse_is_active(raw_value, default=True):
     if normalized in {'0', 'false', 'no', 'n', 'off', '禁用', '否', 'inactive'}:
         return False
     return default
+
+
+def _normalize_settlement_mode(raw_value):
+    normalized = str(raw_value or '').strip().lower()
+    if normalized in {'credit', 'credit_payable', '挂账', '挂账应付', 'debt'}:
+        return 'CREDIT_PAYABLE'
+    return 'CASH_SETTLED'
 
 
 def _resolve_category(category_token, default_category):
@@ -199,7 +209,7 @@ def _import_products_from_tabular_data(headers, rows, user):
                 barcode = _build_auto_barcode(row_num)
 
             specification = _extract_row_value(row, header_index, ['specification'])
-            manufacturer = _extract_row_value(row, header_index, ['manufacturer'])
+            supplier_name = _extract_row_value(row, header_index, ['supplier', 'supplier_name'])
             description = _extract_row_value(row, header_index, ['description'])
             color = _extract_row_value(row, header_index, ['color'])
             size = _extract_row_value(row, header_index, ['size'])
@@ -227,6 +237,43 @@ def _import_products_from_tabular_data(headers, rows, user):
                 result['failed_rows'].append((row_num, "预警库存必须是大于等于0的整数"))
                 continue
 
+            settlement_mode = _normalize_settlement_mode(
+                _extract_row_value(row, header_index, ['settlement_mode', 'payment_status'])
+            )
+            payable_amount = None
+            if settlement_mode == 'CREDIT_PAYABLE':
+                raw_payable_amount = _extract_row_value(
+                    row,
+                    header_index,
+                    ['payable_amount', 'amount_due', 'debt_amount'],
+                )
+                if not raw_payable_amount:
+                    result['failed'] += 1
+                    result['failed_rows'].append((row_num, "挂账导入必须填写 payable_amount"))
+                    continue
+                try:
+                    payable_amount = _parse_positive_decimal(raw_payable_amount)
+                except (InvalidOperation, ValueError):
+                    result['failed'] += 1
+                    result['failed_rows'].append((row_num, "payable_amount 必须为大于 0 的数字"))
+                    continue
+                if payable_amount <= 0:
+                    result['failed'] += 1
+                    result['failed_rows'].append((row_num, "payable_amount 必须大于 0"))
+                    continue
+                if initial_stock <= 0:
+                    result['failed'] += 1
+                    result['failed_rows'].append((row_num, "挂账导入必须填写大于 0 的 initial_stock"))
+                    continue
+
+            supplier = None
+            if supplier_name:
+                supplier, _ = Supplier.objects.get_or_create(name=supplier_name)
+            elif settlement_mode == 'CREDIT_PAYABLE':
+                result['failed'] += 1
+                result['failed_rows'].append((row_num, "挂账导入必须填写 supplier"))
+                continue
+
             with transaction.atomic():
                 product = Product.objects.create(
                     name=name,
@@ -236,7 +283,7 @@ def _import_products_from_tabular_data(headers, rows, user):
                     cost=cost_price,
                     barcode=barcode,
                     specification=specification,
-                    manufacturer=manufacturer,
+                    supplier=supplier,
                     description=description,
                     color=color,
                     size=size,
@@ -246,17 +293,38 @@ def _import_products_from_tabular_data(headers, rows, user):
                 inventory, _ = WarehouseInventory.objects.get_or_create(
                     product=product,
                     warehouse=target_warehouse,
-                    defaults={'warning_level': warning_level, 'quantity': initial_stock}
+                    defaults={'warning_level': warning_level, 'quantity': 0}
                 )
-                inventory_changed_fields = []
                 if inventory.warning_level != warning_level:
                     inventory.warning_level = warning_level
-                    inventory_changed_fields.append('warning_level')
-                if inventory.quantity != initial_stock:
-                    inventory.quantity = initial_stock
-                    inventory_changed_fields.append('quantity')
-                if inventory_changed_fields:
-                    inventory.save(update_fields=inventory_changed_fields)
+                    inventory.save(update_fields=['warning_level'])
+
+                if initial_stock > 0:
+                    if user is None:
+                        raise ValueError('导入初始库存失败：缺少操作用户')
+                    success, inventory_obj, stock_result = update_inventory(
+                        product=product,
+                        warehouse=target_warehouse,
+                        quantity=initial_stock,
+                        transaction_type='IN',
+                        operator=user,
+                        notes=f'source=product_import | row={row_num} | intent=initial_stock_setup',
+                    )
+                    if not success:
+                        raise ValueError(stock_result)
+                    inventory = inventory_obj
+
+                if settlement_mode == 'CREDIT_PAYABLE':
+                    PayableService.create_payable_order(
+                        supplier=supplier,
+                        amount=payable_amount,
+                        created_by=user,
+                        warehouse=target_warehouse,
+                        source_type='PRODUCT_IMPORT',
+                        source_id=product.id,
+                        settlement_mode='CREDIT_PAYABLE',
+                        remark=f'商品导入挂账应付: product_id={product.id}; row={row_num}',
+                    )
 
             result['success'] += 1
         except Exception as e:

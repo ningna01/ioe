@@ -1,6 +1,8 @@
+from decimal import Decimal
+
 from django import forms
 
-from inventory.models import InventoryTransaction, Product, Warehouse
+from inventory.models import InventoryTransaction, Product, Warehouse, Supplier
 from inventory.exceptions import AuthorizationError
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 
@@ -19,6 +21,52 @@ class InventoryTransactionForm(forms.ModelForm):
             'aria-label': '仓库',
             'style': 'height: 48px; font-size: 16px;'
         })
+    )
+
+    supplier = forms.ModelChoiceField(
+        queryset=Supplier.objects.filter(is_active=True),
+        label='供货商',
+        help_text='挂账入库时必须选择供货商',
+        empty_label='请选择供货商（可选）',
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-control form-select',
+            'aria-label': '供货商',
+            'style': 'height: 48px; font-size: 16px;'
+        })
+    )
+
+    settlement_mode = forms.ChoiceField(
+        label='结算方式',
+        required=False,
+        initial='CASH_SETTLED',
+        choices=[
+            ('CASH_SETTLED', '现金结清'),
+            ('CREDIT_PAYABLE', '挂账应付'),
+        ],
+        widget=forms.Select(attrs={
+            'class': 'form-control form-select',
+            'aria-label': '结算方式',
+            'style': 'height: 48px; font-size: 16px;'
+        })
+    )
+
+    payable_amount = forms.DecimalField(
+        label='应付款金额',
+        required=False,
+        min_value=Decimal('0.01'),
+        decimal_places=2,
+        max_digits=10,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'step': '0.01',
+            'min': '0.01',
+            'placeholder': '挂账时必填',
+            'aria-label': '应付款金额',
+            'inputmode': 'decimal',
+            'style': 'height: 48px; font-size: 16px;'
+        }),
+        help_text='仅当结算方式为“挂账应付”时填写。',
     )
     
     class Meta:
@@ -54,10 +102,11 @@ class InventoryTransactionForm(forms.ModelForm):
         self.required_permission = kwargs.pop('required_permission', None)
         super().__init__(*args, **kwargs)
         # 使用select_related优化查询
-        self.fields['product'].queryset = Product.objects.filter(is_active=True).select_related('category')
+        self.fields['product'].queryset = Product.objects.filter(is_active=True).select_related('category', 'supplier')
         self.fields['product'].label_from_instance = (
             lambda product: f'{product.name} ({product.barcode})'
         )
+        self.fields['supplier'].queryset = Supplier.objects.filter(is_active=True).order_by('name')
 
         if self.user is not None:
             accessible_warehouses = WarehouseScopeService.get_accessible_warehouses(
@@ -74,6 +123,16 @@ class InventoryTransactionForm(forms.ModelForm):
 
         if default_warehouse:
             self.fields['warehouse'].initial = default_warehouse.pk
+
+        self.order_fields([
+            'warehouse',
+            'product',
+            'supplier',
+            'settlement_mode',
+            'payable_amount',
+            'quantity',
+            'notes',
+        ])
         
         # 添加响应式布局的辅助类
         for field in self.fields.values():
@@ -102,3 +161,22 @@ class InventoryTransactionForm(forms.ModelForm):
             except AuthorizationError:
                 raise forms.ValidationError('您无权操作该仓库')
         return warehouse
+
+    def clean(self):
+        cleaned_data = super().clean()
+        settlement_mode = cleaned_data.get('settlement_mode') or 'CASH_SETTLED'
+        payable_amount = cleaned_data.get('payable_amount')
+        supplier = cleaned_data.get('supplier')
+        product = cleaned_data.get('product')
+
+        if supplier is None and product is not None and product.supplier_id:
+            cleaned_data['supplier'] = product.supplier
+            supplier = product.supplier
+
+        if settlement_mode == 'CREDIT_PAYABLE':
+            if supplier is None:
+                self.add_error('supplier', '挂账入库必须选择供货商')
+            if payable_amount is None or payable_amount <= 0:
+                self.add_error('payable_amount', '挂账入库必须填写大于 0 的应付款金额')
+
+        return cleaned_data

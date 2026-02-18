@@ -25,8 +25,23 @@
                                 {{ form.name|as_crispy_field }}
                                 {{ form.barcode|as_crispy_field }}
                                 {{ form.category|as_crispy_field }}
-                                {{ form.specification|as_crispy_field }}
-                                {{ form.manufacturer|as_crispy_field }}
+                                {% if form.instance.id and 'specification' in form.fields %}
+                                    {{ form.specification|as_crispy_field }}
+                                {% endif %}
+                                {% if 'supplier_name' in form.fields %}
+                                    {{ form.supplier_name|as_crispy_field }}
+                                    <datalist id="supplier-suggestions">
+                                        {% for supplier_name in form.supplier_suggestions %}
+                                        <option value="{{ supplier_name }}"></option>
+                                        {% endfor %}
+                                    </datalist>
+                                {% endif %}
+                                {% if not form.instance.id and 'settlement_mode' in form.fields %}
+                                    {{ form.settlement_mode|as_crispy_field }}
+                                {% endif %}
+                                {% if not form.instance.id and 'payable_amount' in form.fields %}
+                                    {{ form.payable_amount|as_crispy_field }}
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -179,6 +194,22 @@
             }
             $(this).addClass('was-validated');
         });
+
+        const settlementSelect = $('#id_settlement_mode');
+        const payableAmountInput = $('#id_payable_amount');
+        const payableWrapper = payableAmountInput.closest('.form-group, .mb-3');
+        function togglePayableAmount() {
+            if (!settlementSelect.length || !payableWrapper.length) {
+                return;
+            }
+            const needPayable = settlementSelect.val() === 'CREDIT_PAYABLE';
+            payableWrapper.toggle(needPayable);
+            if (!needPayable) {
+                payableAmountInput.val('');
+            }
+        }
+        togglePayableAmount();
+        settlementSelect.on('change', togglePayableAmount);
     });
 </script>
 {% endblock %}

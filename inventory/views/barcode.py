@@ -71,11 +71,15 @@ def barcode_product_create(request):
             
             if barcode_data:
                 # 预填表单数据
+                supplier_name = (barcode_data.get('manufacturer') or '').strip()
+                supplier = None
+                if supplier_name:
+                    supplier, _ = inventory.models.Supplier.objects.get_or_create(name=supplier_name)
                 initial_data = {
                     'barcode': barcode,
                     'name': barcode_data.get('name', ''),
                     'specification': barcode_data.get('specification', ''),
-                    'manufacturer': barcode_data.get('manufacturer', ''),
+                    'supplier': supplier.id if supplier else None,
                     'price': barcode_data.get('suggested_price', 0),
                     'cost': barcode_data.get('suggested_price', 0) * 0.8 if barcode_data.get('suggested_price') else 0,  # 默认成本价为建议售价的80%
                     'description': barcode_data.get('description', '')
@@ -195,7 +199,7 @@ def barcode_lookup(request):
             'stock': stock,
             'category': product.category.name if product.category else '',
             'specification': product.specification,
-            'manufacturer': product.manufacturer,
+            'supplier_name': product.supplier.name if product.supplier else '',
             'description': product.description,
             'message': '商品已存在于系统中'
         })
@@ -244,7 +248,7 @@ def product_by_barcode(request, barcode):
             'stock': stock,
             'category': product.category.name if product.category else '',
             'specification': product.specification,
-            'manufacturer': product.manufacturer
+            'supplier_name': product.supplier.name if product.supplier else ''
         })
     except inventory.models.Product.DoesNotExist:
         # 如果精确匹配失败，尝试模糊匹配条码或名称
@@ -270,7 +274,7 @@ def product_by_barcode(request, barcode):
                     'stock': stock,
                     'category': product.category.name if product.category else '',
                     'specification': product.specification,
-                    'manufacturer': product.manufacturer
+                    'supplier_name': product.supplier.name if product.supplier else ''
                 })
             # 如果有多个匹配结果
             else:

@@ -67,7 +67,14 @@ class Product(models.Model):
     image = models.ImageField(upload_to='products/', blank=True, null=True, verbose_name='商品图片')
     # 新增字段
     specification = models.CharField(max_length=200, blank=True, verbose_name='规格')
-    manufacturer = models.CharField(max_length=200, blank=True, verbose_name='制造商')
+    supplier = models.ForeignKey(
+        'Supplier',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products',
+        verbose_name='供货商',
+    )
     color = models.CharField(max_length=20, blank=True, default='', verbose_name='颜色')
     size = models.CharField(max_length=30, blank=True, default='', verbose_name='尺码')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')

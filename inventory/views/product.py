@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponse
 from django.contrib import messages
 from django.db.models import Q, Count, Sum
+from django.db import transaction
 from django.core.paginator import Paginator
 from django.urls import reverse
 from django.utils import timezone
@@ -28,6 +29,7 @@ from inventory.forms import (
 )
 from inventory.utils import generate_thumbnail
 from inventory.services import product_service
+from inventory.services.payable_service import PayableService
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 
 
@@ -74,7 +76,7 @@ def product_by_barcode(request, barcode):
             'stock': stock,
             'category': product.category.name if product.category else '',
             'specification': product.specification,
-            'manufacturer': product.manufacturer
+            'supplier_name': product.supplier.name if product.supplier else ''
         })
     except Product.DoesNotExist:
         # 如果精确匹配失败，尝试模糊匹配条码
@@ -267,6 +269,8 @@ def product_create(request):
             initial_quantity = form.cleaned_data.get('initial_quantity', 0) or 0
             if initial_quantity < 0:
                 initial_quantity = 0
+            settlement_mode = form.cleaned_data.get('settlement_mode', 'CASH_SETTLED')
+            payable_amount = form.cleaned_data.get('payable_amount')
                 
             target_warehouse = _get_preferred_product_warehouse(request.user)
             warehouse_inventory = None
@@ -290,39 +294,61 @@ def product_create(request):
                         f"product_id={product.id} | warehouse_id={target_warehouse.id} | "
                         f"quantity={initial_quantity} | warning_level={warning_level}"
                     )
-                    success, inventory_obj, stock_result = update_inventory(
-                        product=product,
-                        warehouse=target_warehouse,
-                        quantity=initial_quantity,
-                        transaction_type='IN',
-                        operator=request.user,
-                        notes=stock_notes
-                    )
-                    if success:
-                        warehouse_inventory = inventory_obj
-                        transaction_obj = stock_result
-                        OperationLog.objects.create(
-                            operator=request.user,
-                            operation_type='INVENTORY',
-                            details=(
-                                f"商品初始库存写入: 商品={product.name}; 仓库={target_warehouse.name}; "
-                                f"请求数量={initial_quantity}; 变更=+{initial_quantity}; 当前库存={warehouse_inventory.quantity}; "
-                                f"交易ID={transaction_obj.id}; 来源=product_create"
-                            ),
-                            related_object_id=transaction_obj.id,
-                            related_content_type=ContentType.objects.get_for_model(InventoryTransaction)
-                        )
-                    else:
-                        stock_update_error = stock_result
+                    try:
+                        with transaction.atomic():
+                            success, inventory_obj, stock_result = update_inventory(
+                                product=product,
+                                warehouse=target_warehouse,
+                                quantity=initial_quantity,
+                                transaction_type='IN',
+                                operator=request.user,
+                                notes=stock_notes
+                            )
+                            if not success:
+                                raise ValueError(stock_result)
+
+                            warehouse_inventory = inventory_obj
+                            transaction_obj = stock_result
+                            OperationLog.objects.create(
+                                operator=request.user,
+                                operation_type='INVENTORY',
+                                details=(
+                                    f"商品初始库存写入: 商品={product.name}; 仓库={target_warehouse.name}; "
+                                    f"请求数量={initial_quantity}; 变更=+{initial_quantity}; 当前库存={warehouse_inventory.quantity}; "
+                                    f"交易ID={transaction_obj.id}; 来源=product_create"
+                                ),
+                                related_object_id=transaction_obj.id,
+                                related_content_type=ContentType.objects.get_for_model(InventoryTransaction)
+                            )
+
+                            if settlement_mode == 'CREDIT_PAYABLE':
+                                PayableService.create_payable_order(
+                                    supplier=product.supplier,
+                                    amount=payable_amount,
+                                    created_by=request.user,
+                                    warehouse=target_warehouse,
+                                    source_type='PRODUCT_CREATE',
+                                    source_id=product.id,
+                                    settlement_mode='CREDIT_PAYABLE',
+                                    remark=f'商品建档挂账应付: 商品={product.name}，初始入库数量={initial_quantity}',
+                                )
+                    except Exception as exc:
+                        stock_update_error = str(exc)
 
             if stock_update_error:
-                messages.error(request, f'商品 {product.name} 创建成功，但初始库存写入失败: {stock_update_error}')
+                messages.error(request, f'商品 {product.name} 创建成功，但初始入库或应付款写入失败: {stock_update_error}')
             elif initial_quantity > 0:
                 if target_warehouse is not None:
-                    messages.success(
-                        request,
-                        f'商品 {product.name} 创建成功，初始库存已在仓库 {target_warehouse.name} 设置为 {initial_quantity}'
-                    )
+                    if settlement_mode == 'CREDIT_PAYABLE':
+                        messages.success(
+                            request,
+                            f'商品 {product.name} 创建成功，初始库存已在仓库 {target_warehouse.name} 设置为 {initial_quantity}，并已登记应付款'
+                        )
+                    else:
+                        messages.success(
+                            request,
+                            f'商品 {product.name} 创建成功，初始库存已在仓库 {target_warehouse.name} 设置为 {initial_quantity}'
+                        )
                 else:
                     messages.success(request, f'商品 {product.name} 创建成功')
             else:
@@ -776,18 +802,18 @@ def product_import(request):
         [
             'barcode', 'name', 'category', 'color', 'size',
             'description', 'price', 'cost', 'wholesale_price',
-            'specification', 'manufacturer', 'initial_stock',
-            'warning_level', 'is_active'
+            'specification', 'supplier', 'initial_stock',
+            'warning_level', 'settlement_mode', 'payable_amount', 'is_active'
         ],
         [
             '6900000000012', '测试商品1', '水果', 'green', 'L',
             '门店手动建档同款字段示例', '10.00', '6.00', '8.00',
-            '500g', '示例工厂A', '120', '20', 'true'
+            '500g', '示例供货商A', '120', '20', 'credit', '320.00', 'true'
         ],
         [
             '', '测试商品2', '蔬菜', '', '',
             '空条码时系统自动生成', '5.50', '', '',
-            '1kg', '示例工厂B', '15', '5', 'on'
+            '1kg', '示例供货商B', '15', '5', 'cash', '', 'on'
         ],
     ]
     
@@ -828,12 +854,13 @@ def product_export(request):
         products = products.filter(is_active=False)
     
     export_format = (request.GET.get('format', 'csv') or 'csv').strip().lower()
-    headers = ['ID', '名称', '分类', '零售价', '批发价', '成本价', '条码', '规格', '状态', '更新时间']
+    headers = ['ID', '名称', '分类', '供货商', '零售价', '批发价', '成本价', '条码', '规格', '状态', '更新时间']
     rows = [
         [
             product.id,
             product.name,
             product.category.name if product.category else '',
+            product.supplier.name if product.supplier else '',
             product.price,
             product.wholesale_price or '',
             product.cost,

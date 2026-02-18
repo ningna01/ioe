@@ -4,16 +4,15 @@ Report views.
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.contrib.contenttypes.models import ContentType
 from django.http import JsonResponse
 from django.utils import timezone
 from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
 
 from .forms import DateRangeForm, TopProductsForm, InventoryTurnoverForm
-from .models import UserWarehouseAccess, DebtOrder, OperationLog
+from .models import UserWarehouseAccess, DebtOrder
 from .services.report_service import ReportService
 from .services.export_service import ExportService
+from .services.payable_service import PayableService
 from .services.warehouse_scope_service import WarehouseScopeService
 from .utils.logging import log_view_access
 from .permissions.decorators import permission_required
@@ -647,7 +646,7 @@ def stock_in_report(request):
 @log_view_access('OTHER')
 @permission_required('view_reports')
 def receivable_report(request):
-    """收款报表：按挂账人统计未结算应收款。"""
+    """应收款报表：按挂账人统计未结算应收款。"""
     scope = _resolve_report_scope(request)
     warehouse_ids = scope['warehouse_ids']
 
@@ -698,71 +697,46 @@ def receivable_report(request):
 @log_view_access('OTHER')
 @permission_required('view_reports')
 def payable_report(request):
-    """欠款报表：按收款人统计应付款，并支持新增欠款订单。"""
+    """应付款报表：按供货商统计应付款，并支持软删除应付款订单。"""
     scope = _resolve_report_scope(request)
     warehouse_ids = scope['warehouse_ids']
     available_warehouses = scope['warehouses']
 
     if request.method == 'POST':
         action = (request.POST.get('action') or 'query').strip()
-        if action == 'create_debt_order':
-            payee_name = (request.POST.get('payee_name') or '').strip()
-            raw_amount = (request.POST.get('amount') or '').strip()
-            remark = (request.POST.get('remark') or '').strip()
-            order_warehouse_param = (request.POST.get('order_warehouse') or '').strip()
+        if action == 'create_payable_order':
+            messages.error(request, '手工新增应付款订单入口已停用，请通过入库流程登记应付款。')
+        elif action == 'delete_payable_order':
+            order_id_param = (request.POST.get('order_id') or '').strip()
+            delete_reason = (request.POST.get('delete_reason') or '').strip()
+            try:
+                order_id = int(order_id_param)
+            except (TypeError, ValueError):
+                order_id = None
 
-            order_warehouse = None
-            warehouse_selection_invalid = False
-            if order_warehouse_param:
-                try:
-                    order_warehouse = available_warehouses.get(id=int(order_warehouse_param))
-                except (ValueError, TypeError, available_warehouses.model.DoesNotExist):
-                    messages.error(request, '新增欠款订单失败：仓库选择无效')
-                    warehouse_selection_invalid = True
-                    order_warehouse = None
-            elif scope.get('selected_warehouse') is not None:
-                order_warehouse = scope['selected_warehouse']
+            debt_order = None
+            if order_id is not None:
+                debt_order = DebtOrder.objects.select_related('warehouse', 'supplier').filter(
+                    id=order_id,
+                    is_deleted=False,
+                ).first()
+            if debt_order is None:
+                messages.error(request, '删除失败：未找到可操作的应付款订单')
             else:
-                order_warehouse = (
-                    WarehouseScopeService.get_default_warehouse(request.user)
-                    or available_warehouses.first()
-                )
-
-            if not payee_name:
-                messages.error(request, '新增欠款订单失败：收款人不能为空')
-            elif warehouse_selection_invalid:
-                pass
-            else:
-                try:
-                    amount = Decimal(raw_amount)
-                except (InvalidOperation, TypeError, ValueError):
-                    amount = Decimal('0.00')
-
-                if amount <= 0:
-                    messages.error(request, '新增欠款订单失败：应付款金额必须大于 0')
+                if debt_order.warehouse_id and not available_warehouses.filter(id=debt_order.warehouse_id).exists():
+                    messages.error(request, '删除失败：您无权限操作该仓库的应付款订单')
                 else:
-                    debt_order = DebtOrder.objects.create(
-                        payee_name=payee_name[:120],
-                        amount=amount,
-                        warehouse=order_warehouse,
-                        remark=remark,
-                        created_by=request.user,
-                        status='OPEN',
-                    )
-                    OperationLog.objects.create(
-                        operator=request.user,
-                        operation_type='OTHER',
-                        details=(
-                            f'创建欠款订单 #{debt_order.id}，收款人: {debt_order.payee_name}，'
-                            f'金额: {debt_order.amount}，仓库: '
-                            f'{debt_order.warehouse.name if debt_order.warehouse else "未指定"}；'
-                            f'来源: payable_report'
-                        ),
-                        related_object_id=debt_order.id,
-                        related_content_type=ContentType.objects.get_for_model(DebtOrder),
-                    )
-                    messages.success(request, f'欠款订单创建成功：#{debt_order.id}')
-                    return redirect('payable_report')
+                    try:
+                        PayableService.soft_delete_payable_order(
+                            order=debt_order,
+                            operator=request.user,
+                            reason=delete_reason,
+                        )
+                    except Exception as exc:
+                        messages.error(request, f'删除失败：{exc}')
+                    else:
+                        messages.success(request, f'应付款订单 #{debt_order.id} 已删除（软删除）')
+                        return redirect('payable_report')
 
         form = DateRangeForm(request.POST)
         if form.is_valid():

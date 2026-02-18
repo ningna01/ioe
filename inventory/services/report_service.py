@@ -508,7 +508,7 @@ class ReportService:
     @staticmethod
     def get_receivable_report(start_date=None, end_date=None, warehouse_ids=None):
         """
-        获取收款报表数据（未结算订单应收统计）。
+        获取应收款报表数据（未结算订单应收统计）。
 
         口径说明：
         1) 仅统计状态为 `UNSETTLED` 的销售单；
@@ -570,12 +570,12 @@ class ReportService:
     @staticmethod
     def get_payable_report(start_date=None, end_date=None, warehouse_ids=None):
         """
-        获取欠款报表数据（欠款订单应付款统计）。
+        获取应付款报表数据（应付款订单应付统计）。
 
         口径说明：
-        1) 仅统计状态为 `OPEN` 的欠款订单；
-        2) 按收款人聚合应付款；
-        3) 空收款人归类为“未填写”。
+        1) 仅统计状态为 `OPEN` 且未软删除的应付款订单；
+        2) 按供货商聚合应付款；
+        3) 供货商为空时归类为“未填写”。
         """
         today = timezone.localdate()
         if not start_date:
@@ -586,8 +586,15 @@ class ReportService:
         start_date, end_date_upper = _normalize_date_range(start_date, end_date)
         orders_query = DebtOrder.objects.filter(
             status='OPEN',
+            is_deleted=False,
             created_at__range=(start_date, end_date_upper),
-        ).only('payee_name', 'amount', 'warehouse_id')
+        ).select_related('supplier', 'warehouse').only(
+            'supplier__name',
+            'amount',
+            'warehouse_id',
+            'created_at',
+            'source_type',
+        )
 
         if warehouse_ids is not None:
             if warehouse_ids:
@@ -603,11 +610,11 @@ class ReportService:
             if payable_amount <= 0:
                 continue
 
-            payee = (order.payee_name or '').strip() or '未填写'
+            payee = (order.supplier.name if order.supplier else '').strip() or '未填写'
             bucket = buckets.setdefault(
                 payee,
                 {
-                    'payee_name': payee,
+                    'supplier_name': payee,
                     'payable_amount': Decimal('0.00'),
                     'order_count': 0,
                     'ratio': Decimal('0.00'),
@@ -631,7 +638,18 @@ class ReportService:
             'rows': rows,
             'total_payable': total_payable,
             'total_orders': total_orders,
-            'payee_count': len(rows),
+            'supplier_count': len(rows),
+            'open_orders': [
+                {
+                    'id': order.id,
+                    'supplier_name': order.supplier.name if order.supplier else '未填写',
+                    'amount': _as_decimal(order.amount),
+                    'warehouse_name': order.warehouse.name if order.warehouse else '未指定',
+                    'created_at': order.created_at,
+                    'source_type': order.get_source_type_display(),
+                }
+                for order in orders_query.order_by('-created_at')[:200]
+            ],
         }
     
     @staticmethod

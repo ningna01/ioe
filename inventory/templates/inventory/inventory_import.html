@@ -39,7 +39,8 @@
                             required
                         >
                         <div class="form-text">
-                            必填列：`barcode`, `quantity`；可选列：`warehouse_code`, `notes`。
+                            必填列：`barcode`, `quantity`；可选列：`warehouse_code`, `notes`, `supplier`, `settlement_mode`, `payable_amount`。
+                            当 `settlement_mode=credit` 时，`payable_amount` 必填，且必须有供货商（可由 `supplier` 提供或商品默认供货商自动带出）。
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary">
@@ -61,11 +62,14 @@
                     <li>`quantity`：入库数量，必须为正整数。</li>
                     <li>`warehouse_code`：仓库编码，留空则使用默认仓。</li>
                     <li>`notes`：入库备注，可选。</li>
+                    <li>`supplier`：供货商名称（可选，挂账时建议填写）。</li>
+                    <li>`settlement_mode`：`cash` 或 `credit`，默认 `cash`。</li>
+                    <li>`payable_amount`：挂账应付款金额，仅 `credit` 时必填。</li>
                 </ul>
                 <div class="small text-muted mb-2">示例：</div>
-                <pre class="bg-light border rounded p-3 small mb-0">barcode,quantity,warehouse_code,notes
-1234567890,20,{{ default_warehouse_code|default:'MAIN_WH' }},补货
-ABC001,5,,临时补货</pre>
+                <pre class="bg-light border rounded p-3 small mb-0">barcode,quantity,warehouse_code,supplier,settlement_mode,payable_amount,notes
+1234567890,20,{{ default_warehouse_code|default:'MAIN_WH' }},示例供货商A,credit,320.00,补货挂账
+ABC001,5,,示例供货商B,cash,,临时补货</pre>
                 {% if warehouses %}
                 <div class="small text-muted mt-3">可用仓库编码：</div>
                 <div class="d-flex flex-wrap gap-2 mt-2">

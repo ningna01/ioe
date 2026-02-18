@@ -35,9 +35,9 @@
                         {{ form.csv_file }}
                         <div class="form-text">
                             推荐按手动新增字段导入：
-                            <code>barcode,name,category,color,size,description,price,cost,wholesale_price,specification,manufacturer,initial_stock,warning_level,is_active</code>。
-                            其中 <code>specification</code> 表示商品规格，预警库存请使用 <code>warning_level</code> 字段。
-                            兼容旧表头 <code>retail_price</code>/<code>cost_price</code>。
+                            <code>barcode,name,category,color,size,description,price,cost,wholesale_price,specification,supplier,initial_stock,warning_level,settlement_mode,payable_amount,is_active</code>。
+                            其中 <code>settlement_mode</code> 支持 <code>cash</code> / <code>credit</code>，当为 <code>credit</code> 时必须填写 <code>payable_amount</code>。
+                            预警库存请使用 <code>warning_level</code> 字段。
                         </div>
                         {% if form.csv_file.errors %}
                         <div class="text-danger small mt-1">

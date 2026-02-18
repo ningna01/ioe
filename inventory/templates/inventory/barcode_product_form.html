@@ -80,7 +80,7 @@
                                 
                                 {% if barcode_data.manufacturer %}
                                 <tr>
-                                    <th><i class="bi bi-building me-2"></i>制造商</th>
+                                    <th><i class="bi bi-building me-2"></i>供货商信息</th>
                                     <td>{{ barcode_data.manufacturer }}</td>
                                 </tr>
                                 {% endif %}
@@ -230,13 +230,23 @@
                     
                     <div class="row">
                         <div class="col-md-4 mb-3">
-                            <label for="id_manufacturer" class="form-label">制造商</label>
-                            {% if form.manufacturer.errors %}
-                                <div class="alert alert-danger">{{ form.manufacturer.errors }}</div>
+                            <label for="id_supplier" class="form-label">供货商</label>
+                            {% if form.supplier.errors %}
+                                <div class="alert alert-danger">{{ form.supplier.errors }}</div>
                             {% endif %}
                             <div class="input-group">
                                 <span class="input-group-text"><i class="bi bi-building"></i></span>
-                                <input type="text" name="manufacturer" id="id_manufacturer" class="form-control" value="{{ form.manufacturer.value|default:'' }}{% if not form.manufacturer.value and barcode_data %}{{ barcode_data.manufacturer|default:'' }}{% endif %}">
+                                <select name="supplier" id="id_supplier" class="form-select">
+                                    <option value="">--选择供货商--</option>
+                                    {% for supplier in form.supplier.field.queryset %}
+                                    <option
+                                        value="{{ supplier.id }}"
+                                        {% if form.supplier.value == supplier.id|stringformat:'s' %}selected{% elif barcode_data and barcode_data.manufacturer == supplier.name %}selected{% endif %}
+                                    >
+                                        {{ supplier.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
                             </div>
                         </div>
                         <div class="col-md-4 mb-3">
