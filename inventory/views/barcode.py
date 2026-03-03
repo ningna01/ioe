@@ -240,6 +240,7 @@ def product_by_barcode(request, barcode):
         return JsonResponse({
             'success': True,
             'multiple_matches': False,
+            'count': 1,
             'product_id': product.id,
             'name': product.name,
             'price': float(product.price),
@@ -255,17 +256,19 @@ def product_by_barcode(request, barcode):
         products = inventory.models.Product.objects.filter(
             Q(barcode__icontains=barcode) | 
             Q(name__icontains=barcode)
-        ).order_by('name')[:5]  # 限制返回数量
+        ).order_by('name', 'barcode', 'id')
         
         if products.exists():
+            matched_count = products.count()
             # 如果只有一个匹配结果
-            if products.count() == 1:
+            if matched_count == 1:
                 product = products.first()
                 stock = StockScopeService.get_product_stock(product, warehouse_ids=warehouse_ids)
                     
                 return JsonResponse({
                     'success': True,
                     'multiple_matches': False,
+                    'count': 1,
                     'product_id': product.id,
                     'name': product.name,
                     'price': float(product.price),
@@ -295,12 +298,14 @@ def product_by_barcode(request, barcode):
                 return JsonResponse({
                     'success': True,
                     'multiple_matches': True,
-                    'products': product_list
+                    'products': product_list,
+                    'count': matched_count,
                 })
         else:
             return JsonResponse({
                 'success': False,
-                'message': '未找到商品'
+                'message': '未找到商品',
+                'count': 0,
             })
 
 @login_required
@@ -439,11 +444,11 @@ def product_search_api(request):
     # 使用service层搜索商品
     products = search_products(query, active_only=True)
     warehouse_ids = StockScopeService.resolve_request_warehouse_ids(request)
-    stock_map = StockScopeService.get_bulk_product_stock_map(products[:10], warehouse_ids=warehouse_ids)
+    stock_map = StockScopeService.get_bulk_product_stock_map(products, warehouse_ids=warehouse_ids)
     
     # 格式化返回数据
     result = []
-    for product in products[:10]:  # 限制返回10条结果
+    for product in products:
         stock = stock_map.get(product.id, 0)
             
         result.append({

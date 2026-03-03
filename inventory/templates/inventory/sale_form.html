@@ -173,6 +173,15 @@
         background-color: #27ae60;
     }
 
+    #product-selection-modal .modal-dialog {
+        max-width: 720px;
+    }
+
+    #product-selection-content {
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+
     .summary-row {
         display: flex;
         justify-content: space-between;
@@ -394,7 +403,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             barcode: p.barcode || p.code || '',
                             spec: p.specification || p.spec || '' // 适配多种可能的 key
                         }));
-                        showProductSelectionModal(standardizedProducts);
+                        showProductSelectionModal(standardizedProducts, data.count);
                     } else if (data.product_id || (data.product && data.product.id)) {
                         // **处理单结果，强制统一结构**
                         const productSource = data.product || data; // API 可能直接返回顶级字段
@@ -462,7 +471,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         barcode: p.barcode || p.code || '',
                         spec: p.specification || p.spec || ''
                     }));
-                    showProductSelectionModal(standardizedProducts);
+                    showProductSelectionModal(standardizedProducts, data.count);
                 } else {
                     console.warn(`[API Warning] Name search did not find valid products for ${name}. Response:`, data);
                     showAlert('warning', data.message || '未找到匹配的商品');
@@ -475,9 +484,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 商品选择模态框 (确保添加事件监听时使用标准化的数据)
-    function showProductSelectionModal(products) {
+    function showProductSelectionModal(products, totalCount) {
         const modalBody = document.getElementById('product-selection-content');
         if (!modalBody) return;
+        const modalTitle = document.getElementById('product-selection-title');
+        const parsedCount = parseInt(totalCount, 10);
+        const displayCount = Number.isFinite(parsedCount) ? parsedCount : products.length;
+        if (modalTitle) {
+            modalTitle.textContent = `选择商品（共 ${displayCount} 条）`;
+        }
 
         modalBody.innerHTML = '';
 
@@ -1222,7 +1237,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">选择商品</h5>
+                <h5 class="modal-title" id="product-selection-title">选择商品</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" id="product-selection-content">
