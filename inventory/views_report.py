@@ -598,6 +598,12 @@ def stock_in_report(request):
     """入库报表：按零售价统计入库金额，并展示当前仓库库存总值。"""
     scope = _resolve_report_scope(request)
     warehouse_ids = scope['warehouse_ids']
+    raw_show_voided = (
+        request.POST.get('show_voided')
+        if request.method == 'POST'
+        else request.GET.get('show_voided', '0')
+    )
+    show_voided = str(raw_show_voided or '').strip().lower() in {'1', 'true', 'on', 'yes'}
 
     if request.method == 'POST':
         form = DateRangeForm(request.POST)
@@ -608,12 +614,14 @@ def stock_in_report(request):
                 start_date=start_date,
                 end_date=end_date,
                 warehouse_ids=warehouse_ids,
+                include_voided=show_voided,
             )
             context = {
                 'form': form,
                 'start_date': start_date,
                 'end_date': end_date,
                 'report_data': report_data,
+                'show_voided': show_voided,
             }
             return render(
                 request,
@@ -621,19 +629,32 @@ def stock_in_report(request):
                 _append_scope_context(context, scope),
             )
 
-    form = DateRangeForm(initial=_today_report_initial())
-    start_date = timezone.localdate()
-    end_date = start_date
+    if request.GET:
+        form = DateRangeForm(request.GET)
+        if form.is_valid():
+            start_date = form.cleaned_data['start_date']
+            end_date = form.cleaned_data['end_date']
+        else:
+            form = DateRangeForm(initial=_today_report_initial())
+            start_date = timezone.localdate()
+            end_date = start_date
+    else:
+        form = DateRangeForm(initial=_today_report_initial())
+        start_date = timezone.localdate()
+        end_date = start_date
+
     report_data = ReportService.get_stock_in_report(
         start_date=start_date,
         end_date=end_date,
         warehouse_ids=warehouse_ids,
+        include_voided=show_voided,
     )
     context = {
         'form': form,
         'start_date': start_date,
         'end_date': end_date,
         'report_data': report_data,
+        'show_voided': show_voided,
     }
     return render(
         request,

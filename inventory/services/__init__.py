@@ -15,6 +15,7 @@ from . import warehouse_scope_service
 from . import warehouse_inventory_service
 from . import stock_scope_service
 from . import payable_service
+from . import inventory_transaction_service
 
 # 导出服务模块，方便直接访问
 __all__ = [
@@ -29,4 +30,5 @@ __all__ = [
     'warehouse_inventory_service',
     'stock_scope_service',
     'payable_service',
+    'inventory_transaction_service',
 ]

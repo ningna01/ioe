@@ -26,6 +26,25 @@ class InventoryTransaction(models.Model):
     operator = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='操作员')
     notes = models.TextField(blank=True, verbose_name='备注')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    is_voided = models.BooleanField(default=False, db_index=True, verbose_name='是否作废')
+    voided_at = models.DateTimeField(null=True, blank=True, verbose_name='作废时间')
+    voided_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='voided_inventory_transactions',
+        verbose_name='作废人',
+    )
+    void_reason = models.TextField(blank=True, default='', verbose_name='作废原因')
+    reversal_of = models.OneToOneField(
+        'self',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='reversal_transaction',
+        verbose_name='冲销原交易',
+    )
     
     class Meta:
         verbose_name = '库存交易记录'
@@ -33,7 +52,8 @@ class InventoryTransaction(models.Model):
     
     def __str__(self):
         warehouse_name = self.warehouse.name if self.warehouse else '未绑定仓库'
-        return f'{self.product.name} - {self.get_transaction_type_display()} - {self.quantity} ({warehouse_name})'
+        voided_suffix = ' [已作废]' if self.is_voided else ''
+        return f'{self.product.name} - {self.get_transaction_type_display()} - {self.quantity} ({warehouse_name}){voided_suffix}'
 
 
 # 添加库存工具函数

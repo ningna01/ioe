@@ -9,6 +9,8 @@ from inventory.models import DebtOrder, OperationLog
 class PayableService:
     """应付款业务服务。"""
 
+    INVENTORY_PAYABLE_SOURCE_TYPES = ('INVENTORY_IN', 'INVENTORY_IMPORT')
+
     @staticmethod
     def create_payable_order(
         *,
@@ -85,3 +87,103 @@ class PayableService:
         )
 
         return order
+
+    @staticmethod
+    def create_settled_offset_order(
+        *,
+        order,
+        operator,
+        source_transaction_id,
+        reason='',
+    ):
+        """
+        Create a settled offset payable order for an already-settled source order.
+
+        Returns:
+            (offset_order, created: bool)
+        """
+        existing_offset = DebtOrder.objects.filter(offset_of=order).first()
+        if existing_offset is not None:
+            return existing_offset, False
+
+        amount_decimal = Decimal(str(order.amount or '0'))
+        offset_amount = -abs(amount_decimal)
+        reason_text = (reason or '').strip() or '未填写'
+
+        offset_order = DebtOrder.objects.create(
+            supplier=order.supplier,
+            amount=offset_amount,
+            status='SETTLED',
+            settlement_mode=order.settlement_mode,
+            source_type='INVENTORY_VOID_OFFSET',
+            source_id=source_transaction_id,
+            offset_of=order,
+            warehouse=order.warehouse,
+            remark=(
+                f'入库记录作废冲销应付: source_order_id={order.id}; '
+                f'source_transaction_id={source_transaction_id}; reason={reason_text}'
+            ),
+            created_by=operator,
+        )
+
+        OperationLog.objects.create(
+            operator=operator,
+            operation_type='OTHER',
+            details=(
+                f'创建应付款冲销订单 #{offset_order.id}，原订单 #{order.id}，'
+                f'金额: {offset_order.amount}，来源交易: {source_transaction_id}'
+            ),
+            related_object_id=offset_order.id,
+            related_content_type=ContentType.objects.get_for_model(DebtOrder),
+        )
+        return offset_order, True
+
+    @staticmethod
+    def handle_inventory_void_payables(*, source_transaction_id, operator, reason=''):
+        """
+        Auto process payable orders linked to a voided stock-in transaction.
+        """
+        summary = {
+            'soft_deleted_order_ids': [],
+            'offset_created_order_ids': [],
+            'skipped_order_ids': [],
+        }
+
+        related_orders = DebtOrder.objects.select_for_update().select_related(
+            'supplier',
+            'warehouse',
+        ).filter(
+            source_type__in=PayableService.INVENTORY_PAYABLE_SOURCE_TYPES,
+            source_id=source_transaction_id,
+        )
+
+        for order in related_orders:
+            if order.is_deleted or order.status == 'CANCELLED':
+                summary['skipped_order_ids'].append(order.id)
+                continue
+
+            if order.status == 'OPEN':
+                PayableService.soft_delete_payable_order(
+                    order=order,
+                    operator=operator,
+                    reason=f'入库记录作废自动作废（source_transaction_id={source_transaction_id}）; {(reason or "").strip()}',
+                )
+                summary['soft_deleted_order_ids'].append(order.id)
+                continue
+
+            if order.status == 'SETTLED':
+                offset_order, created = PayableService.create_settled_offset_order(
+                    order=order,
+                    operator=operator,
+                    source_transaction_id=source_transaction_id,
+                    reason=reason,
+                )
+                if created:
+                    summary['offset_created_order_ids'].append(offset_order.id)
+                else:
+                    summary['skipped_order_ids'].append(order.id)
+                continue
+
+            summary['skipped_order_ids'].append(order.id)
+
+        return summary

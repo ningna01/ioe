@@ -25,6 +25,7 @@ class DebtOrder(models.Model):
         ('PRODUCT_IMPORT', '商品导入'),
         ('INVENTORY_IN', '手工入库'),
         ('INVENTORY_IMPORT', '批量入库'),
+        ('INVENTORY_VOID_OFFSET', '入库作废冲销'),
     ]
 
     supplier = models.ForeignKey(
@@ -48,6 +49,14 @@ class DebtOrder(models.Model):
         verbose_name='来源类型',
     )
     source_id = models.PositiveIntegerField(null=True, blank=True, verbose_name='来源对象ID')
+    offset_of = models.OneToOneField(
+        'self',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='offset_entry',
+        verbose_name='冲销原应付款',
+    )
     warehouse = models.ForeignKey(
         Warehouse,
         on_delete=models.PROTECT,

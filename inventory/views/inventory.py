@@ -23,6 +23,7 @@ from inventory.models import (
     update_inventory, Category, UserWarehouseAccess, Supplier
 )
 from inventory.forms import InventoryTransactionForm
+from inventory.services.inventory_transaction_service import InventoryTransactionService
 from inventory.services.payable_service import PayableService
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 
@@ -444,6 +445,48 @@ def inventory_transaction_list(request):
         'date_to': date_to,
         'transaction_types': dict(InventoryTransaction.TRANSACTION_TYPES)
     })
+
+
+@login_required
+def inventory_void_stock_in(request, transaction_id):
+    """作废入库交易并自动冲销库存。"""
+    if request.method != 'POST':
+        messages.error(request, '作废入库记录请通过提交操作完成')
+        return redirect('stock_in_report')
+
+    _ensure_inventory_write_access(
+        request.user,
+        UserWarehouseAccess.PERMISSION_STOCK_ADJUST,
+        '您无权作废入库记录',
+    )
+
+    reason = (request.POST.get('reason') or '').strip()
+    next_url = (request.POST.get('next') or '').strip()
+    success, message, payload = InventoryTransactionService.void_stock_in_transaction(
+        transaction_id=transaction_id,
+        operator=request.user,
+        reason=reason,
+    )
+    if success:
+        payable_summary = (payload or {}).get('payable_summary') or {
+            'soft_deleted_order_ids': [],
+            'offset_created_order_ids': [],
+            'skipped_order_ids': [],
+        }
+        messages.success(
+            request,
+            (
+                f'{message}；应付联动：'
+                f'软删 {len(payable_summary["soft_deleted_order_ids"])} 条，'
+                f'冲销 {len(payable_summary["offset_created_order_ids"])} 条。'
+            ),
+        )
+    else:
+        messages.error(request, message)
+
+    if next_url.startswith('/'):
+        return redirect(next_url)
+    return redirect('stock_in_report')
 
 
 @login_required
@@ -1066,4 +1109,3 @@ def inventory_adjust(request):
         'form': form,
         'current_quantity': current_quantity
     })
-

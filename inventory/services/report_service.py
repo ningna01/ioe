@@ -392,14 +392,15 @@ class ReportService:
         return product_turnover
 
     @staticmethod
-    def get_stock_in_report(start_date=None, end_date=None, warehouse_ids=None):
+    def get_stock_in_report(start_date=None, end_date=None, warehouse_ids=None, include_voided=False):
         """
         获取入库报表数据。
 
         口径说明：
         1) 入库金额按商品零售价 * 入库数量计算；
         2) 仓库库存总值按当前库存数量 * 商品零售价计算；
-        3) warehouse_ids 为空列表时返回空范围结果。
+        3) warehouse_ids 为空列表时返回空范围结果；
+        4) include_voided=False 时默认不统计已作废入库记录。
         """
         today = timezone.localdate()
         if not start_date:
@@ -417,6 +418,8 @@ class ReportService:
             transaction_type='IN',
             created_at__range=(start_date, end_date_upper),
         ).select_related('product', 'warehouse', 'operator')
+        if not include_voided:
+            stock_in_query = stock_in_query.filter(is_voided=False)
 
         if warehouse_ids is not None:
             if warehouse_ids:
@@ -438,6 +441,11 @@ class ReportService:
             'product__price',
             'warehouse__name',
             'operator__username',
+            'is_voided',
+            'voided_at',
+            'voided_by__username',
+            'void_reason',
+            'reversal_transaction__id',
         ).order_by('-created_at', '-id')
 
         transactions = [
@@ -452,6 +460,11 @@ class ReportService:
                 'retail_price': row['product__price'] or Decimal('0.00'),
                 'warehouse_name': row['warehouse__name'] or '未绑定仓库',
                 'operator_name': row['operator__username'] or '-',
+                'is_voided': bool(row.get('is_voided')),
+                'voided_at': row.get('voided_at'),
+                'voided_by': row.get('voided_by__username') or '-',
+                'void_reason': row.get('void_reason') or '',
+                'reversal_transaction_id': row.get('reversal_transaction__id'),
             }
             for row in transaction_rows
         ]

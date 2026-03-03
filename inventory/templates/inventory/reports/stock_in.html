@@ -40,7 +40,7 @@
                             <div class="col-md-3">
                                 {{ form.end_date|as_crispy_field }}
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-2">
                                 <label class="form-label">仓库</label>
                                 <select name="warehouse" class="form-select">
                                     <option value="all" {% if selected_warehouse == 'all' %}selected{% endif %}>全部</option>
@@ -48,6 +48,12 @@
                                     <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id|stringformat:'s' %}selected{% endif %}>{{ warehouse.name }}</option>
                                     {% endfor %}
                                 </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" name="show_voided" id="show-voided" value="1" {% if show_voided %}checked{% endif %}>
+                                    <label class="form-check-label" for="show-voided">显示已作废</label>
+                                </div>
                             </div>
                             <div class="col-md-2 d-flex align-items-end">
                                 <button type="submit" class="btn btn-primary w-100">查询</button>
@@ -138,6 +144,8 @@
                                     <th class="text-end">零售价</th>
                                     <th class="text-end">金额(零售价)</th>
                                     <th>操作员</th>
+                                    <th>状态</th>
+                                    <th class="text-end">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -151,10 +159,37 @@
                                     <td class="text-end">¥{{ row.retail_price|floatformat:2 }}</td>
                                     <td class="text-end">¥{{ row.line_amount|floatformat:2 }}</td>
                                     <td>{{ row.operator_name }}</td>
+                                    <td>
+                                        {% if row.is_voided %}
+                                        <span class="badge bg-secondary">已作废</span>
+                                        <div class="small text-muted mt-1">
+                                            作废人：{{ row.voided_by }}<br>
+                                            作废时间：{{ row.voided_at|date:"Y-m-d H:i"|default:"-" }}<br>
+                                            冲销交易ID：{{ row.reversal_transaction_id|default:"-" }}<br>
+                                            原因：{{ row.void_reason|default:"未填写" }}
+                                        </div>
+                                        {% else %}
+                                        <span class="badge bg-success">有效</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        {% if not row.is_voided %}
+                                        <form method="post" action="{% url 'inventory_void_stock_in' row.id %}" class="d-inline-flex flex-column align-items-end gap-1">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="next" value="{% url 'stock_in_report' %}?start_date={{ start_date|date:'Y-m-d' }}&end_date={{ end_date|date:'Y-m-d' }}&warehouse={{ selected_warehouse }}{% if show_voided %}&show_voided=1{% endif %}">
+                                            <input type="text" name="reason" class="form-control form-control-sm" placeholder="作废原因（选填）" style="min-width: 160px;">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('确认作废该入库记录吗？系统会自动回滚库存并联动应付款。')">
+                                                <i class="bi bi-trash"></i> 作废
+                                            </button>
+                                        </form>
+                                        {% else %}
+                                        <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="8" class="text-center py-4">当前筛选条件下没有入库明细</td>
+                                    <td colspan="10" class="text-center py-4">当前筛选条件下没有入库明细</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

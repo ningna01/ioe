@@ -64,6 +64,11 @@ urlpatterns = [
     path('inventory/adjust/', inventory_views.inventory_adjust, name='inventory_adjust'),
     path('inventory/<int:inventory_id>/warning-level/', inventory_views.inventory_update_warning_level, name='inventory_update_warning_level'),
     path('inventory/transactions/', inventory_views.inventory_transaction_list, name='inventory_transaction_list'),
+    path(
+        'inventory/transactions/<int:transaction_id>/void/',
+        inventory_views.inventory_void_stock_in,
+        name='inventory_void_stock_in',
+    ),
     path('sales/create/', sales_views.sale_create, name='sale_create'),
     path('sales/<int:sale_id>/items/create/', sales_views.sale_item_create, name='sale_item_create'),
     path('accounts/login/', RoleAwareLoginView.as_view(template_name='registration/login.html'), name='login'),
