@@ -86,6 +86,19 @@
         <div class="col-md-6 col-lg-3 mb-4">
             <div class="report-link-card">
                 <div class="card-body">
+                    <div class="mb-2 text-primary"><i class="bi bi-receipt-cutoff fs-5"></i></div>
+                    <h5 class="card-title">全部销售订单</h5>
+                    <p class="card-text">查看全历史销售订单并支持多维筛选与分页检索</p>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="{% url 'all_sales_report' %}?warehouse={{ selected_warehouse }}" class="btn btn-primary">查看报表</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-3 mb-4">
+            <div class="report-link-card">
+                <div class="card-body">
                     <div class="mb-2 text-warning"><i class="bi bi-person-lines-fill fs-5"></i></div>
                     <h5 class="card-title">应收款报表</h5>
                     <p class="card-text">按挂账人统计未结算应收款与占比</p>

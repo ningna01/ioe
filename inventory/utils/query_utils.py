@@ -64,6 +64,30 @@ def paginate_queryset(queryset, page_number, items_per_page=20):
     
     return paginated_queryset
 
+
+def build_elided_page_range(page_obj, on_each_side=1, on_ends=1):
+    """
+    生成适用于大量页码场景的省略分页序列。
+
+    Args:
+        page_obj: Django Page对象
+        on_each_side: 当前页两侧保留页码数
+        on_ends: 首尾保留页码数
+
+    Returns:
+        list: 由页码(int)与省略符(str)组成的列表
+    """
+    paginator = page_obj.paginator
+    if hasattr(paginator, 'get_elided_page_range'):
+        return list(
+            paginator.get_elided_page_range(
+                number=page_obj.number,
+                on_each_side=on_each_side,
+                on_ends=on_ends,
+            )
+        )
+    return list(paginator.page_range)
+
 def get_filtered_queryset(queryset, filter_params):
     """
     根据过滤参数过滤查询集

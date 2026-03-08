@@ -29,8 +29,7 @@
                     <h3 class="h5 mb-0">设置报表参数</h3>
                 </div>
                 <div class="card-body">
-                    <form method="post">
-                        {% csrf_token %}
+                    <form method="get">
                         <div class="row">
                             <div class="col-md-10">
                                 <label class="form-label">仓库</label>
@@ -40,6 +39,9 @@
                                     <option value="{{ warehouse.id }}" {% if selected_warehouse == warehouse.id|stringformat:'s' %}selected{% endif %}>{{ warehouse.name }}</option>
                                     {% endfor %}
                                 </select>
+                                <input type="hidden" name="history_start_date" value="{{ history_start_date|date:'Y-m-d' }}">
+                                <input type="hidden" name="history_end_date" value="{{ history_end_date|date:'Y-m-d' }}">
+                                <input type="hidden" name="history_q" value="{{ history_query }}">
                             </div>
                             <div class="col-md-2 d-flex align-items-end">
                                 <button type="submit" class="btn btn-primary w-100">查询</button>
@@ -162,6 +164,114 @@
                         </table>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card report-filter-card">
+                <div class="card-header">
+                    <h3 class="h5 mb-0">已结清回溯筛选（原未结算订单）</h3>
+                </div>
+                <div class="card-body">
+                    <form method="get">
+                        <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+                        <div class="row g-2">
+                            <div class="col-md-3">
+                                <label class="form-label">结清开始</label>
+                                <input type="date" class="form-control" name="history_start_date" value="{{ history_start_date|date:'Y-m-d' }}">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">结清结束</label>
+                                <input type="date" class="form-control" name="history_end_date" value="{{ history_end_date|date:'Y-m-d' }}">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">订单号/挂账人</label>
+                                <input type="text" class="form-control" name="history_q" value="{{ history_query }}" placeholder="例如：319 或 张三">
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button type="submit" class="btn btn-outline-primary w-100">筛选</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-md-12">
+            <div class="card report-table-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="h5 mb-0">已结清回溯明细（原未结算订单）</h3>
+                    <span class="badge bg-info">{{ report_data.settled_history_total }} 条</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>订单编号</th>
+                                    <th>挂账人</th>
+                                    <th class="text-end">商品总额</th>
+                                    <th class="text-end">定金</th>
+                                    <th class="text-end">补收金额</th>
+                                    <th>仓库</th>
+                                    <th>结清时间</th>
+                                    <th>结清操作员</th>
+                                    <th class="text-end">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for order in report_data.settled_history_page %}
+                                <tr>
+                                    <td>#{{ order.id }}</td>
+                                    <td>{{ order.account_holder }}</td>
+                                    <td class="text-end">¥{{ order.total_amount|floatformat:2 }}</td>
+                                    <td class="text-end">¥{{ order.deposit_amount|floatformat:2 }}</td>
+                                    <td class="text-end">¥{{ order.settled_amount|floatformat:2 }}</td>
+                                    <td>{{ order.warehouse_name }}</td>
+                                    <td>{{ order.settled_at|date:"Y-m-d H:i:s" }}</td>
+                                    <td>{{ order.settled_by }}</td>
+                                    <td class="text-end">
+                                        <a href="{% url 'sale_detail' order.id %}" class="btn btn-sm btn-outline-info" title="查看详情">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="9" class="text-center py-4">当前筛选条件下暂无已结清回溯数据</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% if report_data.settled_history_page.has_other_pages %}
+                <div class="card-footer">
+                    <nav aria-label="已结清回溯分页">
+                        <ul class="pagination pagination-sm justify-content-end mb-0">
+                            <li class="page-item {% if not report_data.settled_history_page.has_previous %}disabled{% endif %}">
+                                <a class="page-link" href="?warehouse={{ selected_warehouse }}&history_start_date={{ history_start_date|date:'Y-m-d' }}&history_end_date={{ history_end_date|date:'Y-m-d' }}&history_q={{ history_query|urlencode }}&history_page={% if report_data.settled_history_page.has_previous %}{{ report_data.settled_history_page.previous_page_number }}{% else %}1{% endif %}">
+                                    上一页
+                                </a>
+                            </li>
+                            {% for num in report_data.settled_history_page.paginator.page_range %}
+                            <li class="page-item {% if report_data.settled_history_page.number == num %}active{% endif %}">
+                                <a class="page-link" href="?warehouse={{ selected_warehouse }}&history_start_date={{ history_start_date|date:'Y-m-d' }}&history_end_date={{ history_end_date|date:'Y-m-d' }}&history_q={{ history_query|urlencode }}&history_page={{ num }}">{{ num }}</a>
+                            </li>
+                            {% endfor %}
+                            <li class="page-item {% if not report_data.settled_history_page.has_next %}disabled{% endif %}">
+                                <a class="page-link" href="?warehouse={{ selected_warehouse }}&history_start_date={{ history_start_date|date:'Y-m-d' }}&history_end_date={{ history_end_date|date:'Y-m-d' }}&history_q={{ history_query|urlencode }}&history_page={% if report_data.settled_history_page.has_next %}{{ report_data.settled_history_page.next_page_number }}{% else %}{{ report_data.settled_history_page.paginator.num_pages }}{% endif %}">
+                                    下一页
+                                </a>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>

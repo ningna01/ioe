@@ -28,6 +28,7 @@
         <div class="card">
             <div class="card-body">
                 <form method="get" id="filterForm">
+                    <input type="hidden" id="dateScopeInput" name="date_scope" value="{{ date_scope }}">
                     <div class="row g-2 mb-2">
                         <div class="col-12 col-lg-6">
                             <div class="input-group">
@@ -52,7 +53,7 @@
                     <div class="row g-2">
                         <div class="col-12 col-md-6 col-lg-3">
                             <div class="btn-group w-100 quick-range-group">
-                                <button type="button" class="btn btn-outline-secondary active" id="viewAll">全部</button>
+                                <button type="button" class="btn btn-outline-secondary" id="viewAll">全部</button>
                                 <button type="button" class="btn btn-outline-secondary" id="viewToday">今日</button>
                                 <button type="button" class="btn btn-outline-secondary" id="viewMonth">本月</button>
                             </div>
@@ -261,25 +262,66 @@
                 
                 <!-- 分页控件 -->
                 {% if sales %}
-                <div class="d-flex justify-content-between align-items-center mt-4">
+                <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mt-4 gap-2">
                     <div class="text-muted small">
-                        显示 1 至 {{ sales|length }} 条，共 {{ sales|length }} 条记录
+                        显示 {{ sales.start_index }} 至 {{ sales.end_index }} 条，共 {{ sales.paginator.count }} 条记录
                     </div>
+                    <div class="d-flex flex-column flex-lg-row align-items-lg-center gap-2">
                     <nav aria-label="Page navigation">
                         <ul class="pagination pagination-sm mb-0">
-                            <li class="page-item disabled">
-                                <a class="page-link" href="#" aria-label="Previous">
+                            <li class="page-item {% if sales.number <= 1 %}disabled{% endif %}">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page=1">首页</a>
+                            </li>
+                            <li class="page-item {% if not sales.has_previous %}disabled{% endif %}">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={% if sales.has_previous %}{{ sales.previous_page_number }}{% else %}1{% endif %}" aria-label="Previous">
                                     <span aria-hidden="true">&laquo;</span>
                                 </a>
                             </li>
-                            <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                            {% for page_item in page_items %}
+                            {% if page_item == '…' or page_item == '...' %}
                             <li class="page-item disabled">
-                                <a class="page-link" href="#" aria-label="Next">
+                                <span class="page-link">{{ page_item }}</span>
+                            </li>
+                            {% elif sales.number == page_item %}
+                            <li class="page-item active">
+                                <span class="page-link">{{ page_item }}</span>
+                            </li>
+                            {% else %}
+                            <li class="page-item">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_item }}">{{ page_item }}</a>
+                            </li>
+                            {% endif %}
+                            {% endfor %}
+                            <li class="page-item {% if not sales.has_next %}disabled{% endif %}">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={% if sales.has_next %}{{ sales.next_page_number }}{% else %}{{ sales.paginator.num_pages }}{% endif %}" aria-label="Next">
                                     <span aria-hidden="true">&raquo;</span>
                                 </a>
                             </li>
+                            <li class="page-item {% if sales.number >= total_pages %}disabled{% endif %}">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ total_pages }}">末页</a>
+                            </li>
                         </ul>
                     </nav>
+                    {% if total_pages > 1 %}
+                    <form method="get" class="d-flex align-items-center gap-2">
+                        {% for key, value in pagination_param_pairs %}
+                        <input type="hidden" name="{{ key }}" value="{{ value }}">
+                        {% endfor %}
+                        <label class="small text-muted mb-0" for="saleJumpPageInput">跳转</label>
+                        <input
+                            type="number"
+                            id="saleJumpPageInput"
+                            class="form-control form-control-sm"
+                            name="page"
+                            min="1"
+                            max="{{ total_pages }}"
+                            value="{{ sales.number }}"
+                            style="width: 88px;"
+                        >
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">前往</button>
+                    </form>
+                    {% endif %}
+                    </div>
                 </div>
                 {% endif %}
             </div>
@@ -321,20 +363,14 @@
         // 搜索功能增强
         const searchInput = document.getElementById('searchInput');
         const clearSearch = document.getElementById('clearSearch');
+        const dateScopeInput = document.getElementById('dateScopeInput');
+        let searchTimeout = null;
         
         if (searchInput) {
-            // 使用防抖处理搜索输入
-            let searchTimeout;
             searchInput.addEventListener('input', function() {
                 const searchTerm = this.value.toLowerCase();
-                
-                // 清除之前的定时器
                 clearTimeout(searchTimeout);
-                
-                // 前端实时筛选
-                filterTable();
-                
-                // 显示/隐藏清除按钮
+
                 if (clearSearch) {
                     if (searchTerm.length > 0) {
                         clearSearch.classList.remove('d-none');
@@ -342,16 +378,25 @@
                         clearSearch.classList.add('d-none');
                     }
                 }
+
+                searchTimeout = setTimeout(() => {
+                    submitFilterForm();
+                }, 400);
             });
             
-            // 清除搜索
             if (clearSearch) {
                 clearSearch.addEventListener('click', function() {
                     searchInput.value = '';
                     searchInput.focus();
                     this.classList.add('d-none');
-                    filterTable();
+                    submitFilterForm();
                 });
+
+                if (searchInput.value.trim().length > 0) {
+                    clearSearch.classList.remove('d-none');
+                } else {
+                    clearSearch.classList.add('d-none');
+                }
             }
         }
         
@@ -365,12 +410,14 @@
         
         if (dateFilter) {
             dateFilter.addEventListener('change', function() {
+                if (dateScopeInput) dateScopeInput.value = '';
                 submitFilterForm();
             });
         }
         
         if (dateToFilter) {
             dateToFilter.addEventListener('change', function() {
+                if (dateScopeInput) dateScopeInput.value = '';
                 submitFilterForm();
             });
         }
@@ -410,6 +457,7 @@
                 setActiveButton(this);
                 if (dateFilter) dateFilter.value = '';
                 if (dateToFilter) dateToFilter.value = '';
+                if (dateScopeInput) dateScopeInput.value = 'all';
                 submitFilterForm();
             });
         }
@@ -420,6 +468,7 @@
                 const today = new Date().toISOString().split('T')[0];
                 if (dateFilter) dateFilter.value = today;
                 if (dateToFilter) dateToFilter.value = today;
+                if (dateScopeInput) dateScopeInput.value = '';
                 submitFilterForm();
             });
         }
@@ -432,6 +481,7 @@
                 const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().split('T')[0];
                 if (dateFilter) dateFilter.value = firstDay;
                 if (dateToFilter) dateToFilter.value = lastDay;
+                if (dateScopeInput) dateScopeInput.value = '';
                 submitFilterForm();
             });
         }
@@ -442,88 +492,38 @@
             buttons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
         }
-        
-        // 表格筛选函数（前端筛选，用于实时搜索）
-        function filterTable(monthFilter = null) {
-            const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
-            const filterDate = dateFilter ? dateFilter.value : '';
-            const rows = document.querySelectorAll('.sale-row');
-            
-            rows.forEach(function(row) {
-                let showRow = true;
-                
-                // 搜索条件筛选
-                if (searchTerm) {
-                    const orderId = row.querySelector('h6')?.textContent.toLowerCase() || '';
-                    const saleType = row.querySelector('td:nth-child(3) .badge')?.textContent.toLowerCase() || '';
-                    
-                    if (!orderId.includes(searchTerm) && !saleType.includes(searchTerm)) {
-                        showRow = false;
-                    }
-                }
-                
-                // 日期筛选
-                if (filterDate && showRow) {
-                    const saleDate = row.getAttribute('data-date') || '';
-                    if (saleDate !== filterDate) {
-                        showRow = false;
-                    }
-                }
-                
-                // 月份筛选
-                if (monthFilter === 'month' && showRow) {
-                    const saleDate = row.getAttribute('data-date') || '';
-                    const currentMonth = new Date().getMonth() + 1;
-                    const currentYear = new Date().getFullYear();
-                    const saleMonth = new Date(saleDate).getMonth() + 1;
-                    const saleYear = new Date(saleDate).getFullYear();
-                    
-                    if (!(saleMonth === currentMonth && saleYear === currentYear)) {
-                        showRow = false;
-                    }
-                }
-                
-                // 应用显示/隐藏效果
-                if (showRow) {
-                    row.style.display = '';
-                    // 添加淡入效果
-                    row.style.opacity = 0;
-                    setTimeout(() => {
-                        row.style.transition = 'opacity 0.3s ease';
-                        row.style.opacity = 1;
-                    }, 10);
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-            const visibleRows = Array.from(rows).filter(row => {
-                const style = window.getComputedStyle(row);
-                return style.display !== 'none';
-            });
-            const noResultsRow = document.querySelector('.no-results-row');
-            
-            if (visibleRows.length === 0 && rows.length > 0) {
-                // 如果没有可见行但有数据，显示无结果消息
-                if (!noResultsRow) {
-                    const tbody = document.querySelector('tbody');
-                    const tr = document.createElement('tr');
-                    tr.className = 'no-results-row';
-                    tr.innerHTML = `
-                        <td colspan="6" class="text-center py-4">
-                            <div class="d-flex flex-column align-items-center">
-                                <i class="bi bi-search text-muted" style="font-size: 2rem;"></i>
-                                <p class="mt-2 mb-0">未找到匹配的销售记录</p>
-                                <small class="text-muted">尝试使用不同的搜索条件</small>
-                            </div>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                }
-            } else if (noResultsRow) {
-                // 如果有可见行，移除无结果消息
-                noResultsRow.remove();
+
+        function initQuickRangeState() {
+            const buttons = [viewAll, viewToday, viewMonth].filter(Boolean);
+            buttons.forEach(btn => btn.classList.remove('active'));
+
+            if (!dateFilter || !dateToFilter) {
+                return;
+            }
+
+            const today = new Date();
+            const todayStr = today.toISOString().split('T')[0];
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+            const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
+            const fromVal = dateFilter.value || '';
+            const toVal = dateToFilter.value || '';
+            const scopeVal = dateScopeInput ? (dateScopeInput.value || '') : '';
+
+            if (scopeVal === 'all') {
+                if (viewAll) viewAll.classList.add('active');
+                return;
+            }
+            if (fromVal === todayStr && toVal === todayStr) {
+                if (viewToday) viewToday.classList.add('active');
+                return;
+            }
+            if (fromVal === firstDay && (toVal === todayStr || toVal === lastDay)) {
+                if (viewMonth) viewMonth.classList.add('active');
             }
         }
+
+        initQuickRangeState();
     });
 </script>
 {% endblock %}

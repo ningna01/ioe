@@ -30,7 +30,7 @@ from inventory.models import (
 from inventory.forms import SaleForm, SaleItemForm
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 from inventory.services.user_mode_service import is_sales_focus_user
-from inventory.utils.query_utils import paginate_queryset
+from inventory.utils.query_utils import paginate_queryset, build_elided_page_range
 
 
 def _ensure_sale_module_access(user):
@@ -162,6 +162,9 @@ def sale_list(request):
     search_query = request.GET.get('q', '').strip()
     date_from = request.GET.get('date_from', '').strip()
     date_to = request.GET.get('date_to', '').strip()
+    date_scope = request.GET.get('date_scope', '').strip().lower()
+    if date_scope not in {'', 'all'}:
+        date_scope = ''
 
     legacy_sale_type = request.GET.get('sale_type', '').strip().lower()
     status_filter = request.GET.get('status_filter', '').strip().lower()
@@ -194,7 +197,15 @@ def sale_list(request):
         sales = sales.filter(status='COMPLETED')
 
     if search_query:
-        sales = sales.filter(id__icontains=search_query)
+        sales = sales.filter(
+            Q(id__icontains=search_query) |
+            Q(account_holder__icontains=search_query)
+        )
+
+    if not date_from and not date_to and date_scope != 'all':
+        month_start = today.replace(day=1)
+        date_from = month_start.strftime('%Y-%m-%d')
+        date_to = today.strftime('%Y-%m-%d')
 
     date_from_obj = None
     date_to_obj = None
@@ -269,19 +280,32 @@ def sale_list(request):
     # 分页
     page_number = request.GET.get('page', 1)
     paginated_sales = paginate_queryset(sales, page_number)
+    page_items = build_elided_page_range(paginated_sales, on_each_side=1, on_ends=1)
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    pagination_query = query_params.urlencode()
+    pagination_param_pairs = []
+    for key, values in query_params.lists():
+        for value in values:
+            pagination_param_pairs.append((key, value))
     
     context = {
         'sales': paginated_sales,
         'search_query': search_query,
         'date_from': date_from,
         'date_to': date_to,
+        'date_scope': date_scope,
         'status_filter': status_filter,
         'sale_type_filter': sale_type_filter,
         'amount_scope': amount_scope,
         'amount_scope_label': amount_scope_labels[amount_scope],
         'today_sales': today_sales,
         'month_sales': month_sales,
-        'total_sales': total_sales
+        'total_sales': total_sales,
+        'pagination_query': pagination_query,
+        'pagination_param_pairs': pagination_param_pairs,
+        'page_items': page_items,
+        'total_pages': paginated_sales.paginator.num_pages,
     }
 
     return render(request, 'inventory/sale_list.html', context)

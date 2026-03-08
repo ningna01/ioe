@@ -5,15 +5,17 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import JsonResponse
+from django.db.models import Q, Sum
 from django.utils import timezone
 from datetime import datetime, timedelta
 
 from .forms import DateRangeForm, TopProductsForm, InventoryTurnoverForm
-from .models import UserWarehouseAccess, DebtOrder
+from .models import UserWarehouseAccess, DebtOrder, Sale, SaleItem
 from .services.report_service import ReportService
 from .services.export_service import ExportService
 from .services.payable_service import PayableService
 from .services.warehouse_scope_service import WarehouseScopeService
+from .utils.query_utils import paginate_queryset, build_elided_page_range
 from .utils.logging import log_view_access
 from .permissions.decorators import permission_required
 
@@ -84,6 +86,16 @@ def _today_report_initial(extra_initial=None):
     if extra_initial:
         initial.update(extra_initial)
     return initial
+
+
+def _parse_query_date(raw_value):
+    value = (raw_value or '').strip()
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return None
 
 @login_required
 @log_view_access('OTHER')
@@ -666,16 +678,200 @@ def stock_in_report(request):
 @login_required
 @log_view_access('OTHER')
 @permission_required('view_reports')
+def all_sales_report(request):
+    """全部销售订单报表：支持全历史检索与分页浏览。"""
+    scope = _resolve_report_scope(request)
+    today = timezone.now().date()
+
+    base_sales = Sale.objects.select_related('operator', 'warehouse').prefetch_related('items').order_by('-created_at')
+    base_sales = WarehouseScopeService.filter_sales_queryset(
+        request.user,
+        base_sales,
+        required_permission=UserWarehouseAccess.PERMISSION_REPORT_VIEW,
+    )
+
+    search_query = request.GET.get('q', '').strip()
+    date_from = request.GET.get('date_from', '').strip()
+    date_to = request.GET.get('date_to', '').strip()
+    date_scope_raw = request.GET.get('date_scope')
+    if date_scope_raw is None and (date_from or date_to):
+        date_scope = ''
+    else:
+        date_scope = (date_scope_raw or 'all').strip().lower()
+    if date_scope not in {'', 'all'}:
+        date_scope = 'all'
+
+    legacy_sale_type = request.GET.get('sale_type', '').strip().lower()
+    status_filter = request.GET.get('status_filter', '').strip().lower()
+    sale_type_filter = request.GET.get('sale_type_filter', '').strip().lower()
+    amount_scope = request.GET.get('amount_scope', 'total').strip().lower()
+
+    if not status_filter:
+        status_filter = 'all'
+    if status_filter not in ['all', 'completed', 'unsettled', 'abandoned', 'deleted']:
+        status_filter = 'all'
+
+    if not sale_type_filter:
+        sale_type_filter = legacy_sale_type if legacy_sale_type in ['retail', 'wholesale'] else 'all'
+    if sale_type_filter not in ['all', 'retail', 'wholesale']:
+        sale_type_filter = 'all'
+
+    if amount_scope not in ['retail', 'wholesale', 'total']:
+        amount_scope = 'retail'
+
+    sales = base_sales
+    if status_filter == 'deleted':
+        sales = sales.filter(status='DELETED')
+    elif status_filter == 'abandoned':
+        sales = sales.filter(status='ABANDONED')
+    elif status_filter == 'unsettled':
+        sales = sales.filter(status='UNSETTLED')
+    elif status_filter == 'completed':
+        sales = sales.filter(status='COMPLETED')
+
+    if search_query:
+        sales = sales.filter(
+            Q(id__icontains=search_query) |
+            Q(account_holder__icontains=search_query)
+        )
+
+    date_from_obj = None
+    date_to_obj = None
+    if date_from:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+        except ValueError:
+            date_from_obj = None
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+        except ValueError:
+            date_to_obj = None
+
+    if date_from_obj and date_to_obj and date_from_obj > date_to_obj:
+        date_from_obj, date_to_obj = date_to_obj, date_from_obj
+
+    if date_from_obj and date_to_obj:
+        sales = sales.filter(
+            created_at__range=[
+                date_from_obj,
+                datetime.combine(date_to_obj.date(), datetime.max.time()),
+            ]
+        )
+    elif date_from_obj:
+        sales = sales.filter(created_at__date__gte=date_from_obj.date())
+    elif date_to_obj:
+        sales = sales.filter(created_at__date__lte=date_to_obj.date())
+
+    if sale_type_filter in ['retail', 'wholesale']:
+        sales = sales.filter(items__sale_type=sale_type_filter).distinct()
+
+    active_sales = base_sales.exclude(status='DELETED')
+    deposit_locked_sales = active_sales.filter(status__in=['UNSETTLED', 'ABANDONED'])
+    if amount_scope == 'total':
+        today_sales = active_sales.filter(
+            created_at__date=today
+        ).aggregate(total=Sum('final_amount'))['total'] or 0
+        month_sales = active_sales.filter(
+            created_at__year=today.year,
+            created_at__month=today.month,
+        ).aggregate(total=Sum('final_amount'))['total'] or 0
+    else:
+        metrics_items = SaleItem.objects.filter(
+            sale__in=active_sales.filter(status='COMPLETED')
+        )
+        metrics_items = metrics_items.filter(sale_type=amount_scope)
+        today_sales = metrics_items.filter(
+            sale__created_at__date=today
+        ).aggregate(total=Sum('subtotal'))['total'] or 0
+        month_sales = metrics_items.filter(
+            sale__created_at__year=today.year,
+            sale__created_at__month=today.month,
+        ).aggregate(total=Sum('subtotal'))['total'] or 0
+
+        unsettled_today_deposit = deposit_locked_sales.filter(
+            created_at__date=today
+        ).aggregate(total=Sum('deposit_amount'))['total'] or 0
+        unsettled_month_deposit = deposit_locked_sales.filter(
+            created_at__year=today.year,
+            created_at__month=today.month,
+        ).aggregate(total=Sum('deposit_amount'))['total'] or 0
+
+        today_sales += unsettled_today_deposit
+        month_sales += unsettled_month_deposit
+
+    total_sales = sales.count()
+    amount_scope_labels = {
+        'retail': '零售+定金',
+        'wholesale': '批发+定金',
+        'total': '总额',
+    }
+
+    page_number = request.GET.get('page', 1)
+    paginated_sales = paginate_queryset(sales, page_number)
+    page_items = build_elided_page_range(paginated_sales, on_each_side=1, on_ends=1)
+
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    pagination_query = query_params.urlencode()
+    pagination_param_pairs = []
+    for key, values in query_params.lists():
+        for value in values:
+            pagination_param_pairs.append((key, value))
+
+    context = {
+        'sales': paginated_sales,
+        'search_query': search_query,
+        'date_from': date_from,
+        'date_to': date_to,
+        'date_scope': date_scope,
+        'status_filter': status_filter,
+        'sale_type_filter': sale_type_filter,
+        'amount_scope': amount_scope,
+        'amount_scope_label': amount_scope_labels[amount_scope],
+        'today_sales': today_sales,
+        'month_sales': month_sales,
+        'total_sales': total_sales,
+        'pagination_query': pagination_query,
+        'pagination_param_pairs': pagination_param_pairs,
+        'page_items': page_items,
+        'total_pages': paginated_sales.paginator.num_pages,
+    }
+    return render(
+        request,
+        'inventory/reports/all_sales_orders.html',
+        _append_scope_context(context, scope),
+    )
+
+
+@login_required
+@log_view_access('OTHER')
+@permission_required('view_reports')
 def receivable_report(request):
     """应收款报表：按挂账人统计未结算应收款（不按日期筛选）。"""
     scope = _resolve_report_scope(request)
     warehouse_ids = scope['warehouse_ids']
+    today = timezone.localdate()
+    default_history_start = today.replace(day=1)
+    history_start_date = _parse_query_date(request.GET.get('history_start_date')) or default_history_start
+    history_end_date = _parse_query_date(request.GET.get('history_end_date')) or today
+    if history_start_date > history_end_date:
+        history_start_date, history_end_date = history_end_date, history_start_date
+    history_query = (request.GET.get('history_q') or '').strip()
+    history_page = (request.GET.get('history_page') or '1').strip() or '1'
 
     report_data = ReportService.get_receivable_report(
         warehouse_ids=warehouse_ids,
+        history_start_date=history_start_date,
+        history_end_date=history_end_date,
+        history_query=history_query,
+        history_page=history_page,
     )
     context = {
         'report_data': report_data,
+        'history_start_date': history_start_date,
+        'history_end_date': history_end_date,
+        'history_query': history_query,
     }
     return render(
         request,

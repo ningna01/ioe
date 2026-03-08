@@ -1,8 +1,10 @@
 """
 Report generation and data analysis services.
 """
+import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from django.core.paginator import Paginator
 from django.db.models import (
     Sum,
     Count,
@@ -14,6 +16,7 @@ from django.db.models import (
     ExpressionWrapper,
     Exists,
     OuterRef,
+    Q,
 )
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 from django.utils import timezone
@@ -85,6 +88,21 @@ def _apply_sale_type_scope_to_sales(sales_query, sale_type):
         )
         return sales_query.filter(Exists(matched_items))
     return sales_query
+
+
+_UNSETTLED_SETTLE_LOG_PATTERN = re.compile(r'未结算销售单结算完成\s*#(\d+)')
+
+
+def _extract_settled_sale_id(details):
+    if not details:
+        return None
+    match = _UNSETTLED_SETTLE_LOG_PATTERN.search(details)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
 
 
 def _get_completed_sale_items_query(start_date, end_date_upper, sale_type=None, warehouse_ids=None):
@@ -519,7 +537,120 @@ class ReportService:
         }
 
     @staticmethod
-    def get_receivable_report(start_date=None, end_date=None, warehouse_ids=None):
+    def _get_settled_receivable_history(
+        *,
+        warehouse_ids=None,
+        history_start_date=None,
+        history_end_date=None,
+        history_query='',
+        history_page=1,
+        history_page_size=20,
+    ):
+        start_date, end_date_upper = _normalize_date_range(history_start_date, history_end_date)
+        history_query = (history_query or '').strip()
+
+        settled_logs_query = OperationLog.objects.filter(
+            operation_type='SALE',
+            details__contains='未结算销售单结算完成 #',
+            timestamp__range=(start_date, end_date_upper),
+        ).select_related('operator').only(
+            'id',
+            'details',
+            'timestamp',
+            'operator__username',
+        ).order_by('-timestamp', '-id')
+
+        latest_log_by_sale_id = {}
+        for log in settled_logs_query:
+            sale_id = _extract_settled_sale_id(log.details)
+            if sale_id is None:
+                continue
+            if sale_id not in latest_log_by_sale_id:
+                latest_log_by_sale_id[sale_id] = log
+
+        sale_ids = list(latest_log_by_sale_id.keys())
+        if not sale_ids:
+            empty_page = Paginator([], history_page_size).get_page(history_page)
+            return {
+                'page_obj': empty_page,
+                'total_count': 0,
+                'query': history_query,
+                'start_date': history_start_date,
+                'end_date': history_end_date,
+            }
+
+        sales_query = Sale.objects.filter(
+            id__in=sale_ids,
+            status='COMPLETED',
+        ).select_related('warehouse').only(
+            'id',
+            'account_holder',
+            'total_amount',
+            'deposit_amount',
+            'final_amount',
+            'warehouse__name',
+            'created_at',
+            'status',
+        )
+        sales_query = _apply_warehouse_scope(sales_query, warehouse_ids)
+        if history_query:
+            sales_query = sales_query.filter(
+                Q(id__icontains=history_query) |
+                Q(account_holder__icontains=history_query)
+            )
+
+        sale_map = {sale.id: sale for sale in sales_query}
+        rows = []
+        for sale_id, log in latest_log_by_sale_id.items():
+            sale = sale_map.get(sale_id)
+            if sale is None:
+                continue
+
+            deposit_amount = _as_decimal(sale.deposit_amount)
+            final_amount = _as_decimal(sale.final_amount)
+            settled_amount = final_amount - deposit_amount
+            if settled_amount < 0:
+                settled_amount = Decimal('0.00')
+
+            rows.append(
+                {
+                    'id': sale.id,
+                    'account_holder': (sale.account_holder or '').strip() or '未填写',
+                    'total_amount': _as_decimal(sale.total_amount),
+                    'deposit_amount': deposit_amount,
+                    'final_amount': final_amount,
+                    'settled_amount': settled_amount,
+                    'warehouse_name': sale.warehouse.name if sale.warehouse else '未指定',
+                    'created_at': sale.created_at,
+                    'status': sale.status,
+                    'status_display': sale.get_status_display(),
+                    'settled_at': log.timestamp,
+                    'settled_by': log.operator.username if log.operator else '未知',
+                    'settle_log_id': log.id,
+                }
+            )
+
+        rows.sort(key=lambda row: (row['settled_at'], row['id']), reverse=True)
+        page_obj = Paginator(rows, history_page_size).get_page(history_page)
+        return {
+            'page_obj': page_obj,
+            'total_count': len(rows),
+            'query': history_query,
+            'start_date': history_start_date,
+            'end_date': history_end_date,
+        }
+
+    @staticmethod
+    def get_receivable_report(
+        start_date=None,
+        end_date=None,
+        warehouse_ids=None,
+        history_start_date=None,
+        history_end_date=None,
+        history_query='',
+        history_page=1,
+        history_page_size=20,
+    ):
         """
         获取应收款报表数据（未结算订单应收统计，不按日期筛选）。
 
@@ -592,12 +723,34 @@ class ReportService:
                 }
             )
 
+        today = timezone.localdate()
+        if history_start_date is None:
+            history_start_date = today.replace(day=1)
+        if history_end_date is None:
+            history_end_date = today
+
+        settled_history_data = ReportService._get_settled_receivable_history(
+            warehouse_ids=warehouse_ids,
+            history_start_date=history_start_date,
+            history_end_date=history_end_date,
+            history_query=history_query,
+            history_page=history_page,
+            history_page_size=history_page_size,
+        )
+        settled_history_page = settled_history_data['page_obj']
+
         return {
             'rows': rows,
             'total_receivable': total_receivable,
             'total_orders': total_orders,
             'account_holder_count': len(rows),
             'open_orders': open_orders,
+            'settled_history_page': settled_history_page,
+            'settled_history': list(settled_history_page.object_list),
+            'settled_history_total': settled_history_data['total_count'],
+            'settled_history_start_date': settled_history_data['start_date'],
+            'settled_history_end_date': settled_history_data['end_date'],
+            'settled_history_query': settled_history_data['query'],
         }
 
     @staticmethod

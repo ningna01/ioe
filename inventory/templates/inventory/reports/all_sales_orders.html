@@ -1,0 +1,468 @@
+{% extends "inventory/base.html" %}
+
+{% block title %}全部销售订单报表{% endblock %}
+
+{% block extra_head %}
+{% include "inventory/reports/_assets.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container report-page">
+    <div class="row mb-4 report-header">
+        <div class="col-lg-8">
+            <h1 class="h2">全部销售订单报表</h1>
+            <p class="text-muted mb-0">订单范围：全历史（默认）</p>
+            <p class="text-muted mb-0">仓库范围：{{ warehouse_scope_label }}</p>
+        </div>
+        <div class="col-lg-4 text-lg-end">
+            <a href="{% url 'reports_index' %}?warehouse={{ selected_warehouse }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 返回报表中心
+            </a>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <form method="get" id="filterForm">
+                <input type="hidden" name="warehouse" value="{{ selected_warehouse }}">
+                <input type="hidden" id="dateScopeInput" name="date_scope" value="{{ date_scope }}">
+                <div class="row g-2 mb-2">
+                    <div class="col-12 col-lg-6">
+                        <div class="input-group">
+                            <span class="input-group-text bg-primary text-white"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control border-primary" id="searchInput" name="q" value="{{ search_query }}" placeholder="搜索订单编号或挂账人...">
+                            <button class="btn btn-outline-primary d-none d-md-inline-block" type="button" id="clearSearch" title="清除搜索"><i class="bi bi-x-lg"></i></button>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="input-group">
+                            <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
+                            <input type="date" class="form-control border-primary" id="dateFilter" name="date_from" value="{{ date_from }}" placeholder="开始日期">
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="input-group">
+                            <span class="input-group-text bg-primary text-white"><i class="bi bi-calendar3"></i></span>
+                            <input type="date" class="form-control border-primary" id="dateToFilter" name="date_to" value="{{ date_to }}" placeholder="结束日期">
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-2">
+                    <div class="col-12 col-md-6 col-lg-3">
+                        <div class="btn-group w-100 quick-range-group">
+                            <button type="button" class="btn btn-outline-secondary" id="viewAll">全部</button>
+                            <button type="button" class="btn btn-outline-secondary" id="viewToday">今日</button>
+                            <button type="button" class="btn btn-outline-secondary" id="viewMonth">本月</button>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6 col-lg-3">
+                        <div class="input-group">
+                            <span class="input-group-text bg-primary text-white"><i class="bi bi-funnel"></i></span>
+                            <select class="form-select border-primary" id="statusFilter" name="status_filter">
+                                <option value="all" {% if status_filter == 'all' %}selected{% endif %}>所有订单</option>
+                                <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>已完成</option>
+                                <option value="unsettled" {% if status_filter == 'unsettled' %}selected{% endif %}>未结算</option>
+                                <option value="abandoned" {% if status_filter == 'abandoned' %}selected{% endif %}>已放弃</option>
+                                <option value="deleted" {% if status_filter == 'deleted' %}selected{% endif %}>已删除</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6 col-lg-3">
+                        <div class="input-group">
+                            <span class="input-group-text bg-primary text-white"><i class="bi bi-tag"></i></span>
+                            <select class="form-select border-primary" id="saleTypeFilter" name="sale_type_filter">
+                                <option value="all" {% if sale_type_filter == 'all' %}selected{% endif %}>销售方式：全部</option>
+                                <option value="retail" {% if sale_type_filter == 'retail' %}selected{% endif %}>销售方式：零售</option>
+                                <option value="wholesale" {% if sale_type_filter == 'wholesale' %}selected{% endif %}>销售方式：批发</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6 col-lg-3">
+                        <div class="input-group">
+                            <span class="input-group-text bg-primary text-white"><i class="bi bi-cash-coin"></i></span>
+                            <select class="form-select border-primary" id="amountScopeFilter" name="amount_scope">
+                                <option value="total" {% if amount_scope == 'total' %}selected{% endif %}>金额口径：总额</option>
+                                <option value="retail" {% if amount_scope == 'retail' %}selected{% endif %}>金额口径：零售+定金</option>
+                                <option value="wholesale" {% if amount_scope == 'wholesale' %}selected{% endif %}>金额口径：批发+定金</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <div class="table-responsive table-container mt-3">
+                <table class="table table-striped table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>订单信息</th>
+                            <th>销售日期</th>
+                            <th>销售方式</th>
+                            <th>金额</th>
+                            <th>挂账人</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sale in sales %}
+                        <tr class="sale-row" data-date="{{ sale.created_at|date:'Y-m-d' }}">
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        <div class="bg-primary text-white rounded d-flex align-items-center justify-content-center" style="width: 40px; height: 40px">
+                                            <i class="bi bi-receipt"></i>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h6 class="mb-0">订单 #{{ sale.id }}</h6>
+                                        <small class="text-muted">{{ sale.total_quantity }} 件商品</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span>{{ sale.created_at|date:"Y-m-d" }}</span><br>
+                                <small class="text-muted">{{ sale.created_at|date:"H:i" }}</small>
+                            </td>
+                            <td>
+                                {% if sale.get_sale_type == 'wholesale' %}
+                                <span class="badge bg-warning text-dark">{{ sale.get_sale_type_display }}</span>
+                                {% else %}
+                                <span class="badge bg-primary">{{ sale.get_sale_type_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="fw-bold text-success">¥{{ sale.final_amount|floatformat:2 }}</span>
+                                {% if sale.status == 'UNSETTLED' %}
+                                <br><small class="text-muted">商品总额: ¥{{ sale.total_amount|floatformat:2 }}</small>
+                                <br><small class="text-muted">待结算: ¥{{ sale.remaining_amount|floatformat:2 }}</small>
+                                {% elif sale.status == 'ABANDONED' %}
+                                <br><small class="text-muted">商品总额: ¥{{ sale.total_amount|floatformat:2 }}</small>
+                                <br><small class="text-muted">状态: 已放弃（定金保留）</small>
+                                {% endif %}
+                                {% if sale.discount_amount %}
+                                <br><small class="text-muted">优惠: ¥{{ sale.discount_amount }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if sale.account_holder %}
+                                <div class="small text-break" title="{{ sale.account_holder }}">{{ sale.account_holder }}</div>
+                                {% else %}
+                                <span class="text-muted small">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if sale.status == 'DELETED' %}
+                                <span class="badge bg-danger">{{ sale.get_status_display }}</span>
+                                {% elif sale.status == 'ABANDONED' %}
+                                <span class="badge bg-secondary">{{ sale.get_status_display }}</span>
+                                {% elif sale.status == 'UNSETTLED' %}
+                                <span class="badge bg-warning text-dark">{{ sale.get_status_display }}</span>
+                                {% else %}
+                                <span class="badge bg-success">{{ sale.get_status_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group">
+                                    <a href="{% url 'sale_detail' sale.id %}" class="btn btn-sm btn-outline-info" title="查看详情">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    {% if sale.status == 'UNSETTLED' %}
+                                    <a href="{% url 'sale_complete' sale.id %}" class="btn btn-sm btn-outline-success" title="完成结算">
+                                        <i class="bi bi-check2-circle"></i>
+                                    </a>
+                                    {% endif %}
+                                    {% if sale.status != 'DELETED' and sale.status != 'ABANDONED' %}
+                                    <a href="{% url 'sale_cancel' sale.id %}" class="btn btn-sm btn-outline-danger" title="删除订单">
+                                        <i class="bi bi-trash"></i>
+                                    </a>
+                                    {% else %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" title="当前状态不可删除" disabled>
+                                        <i class="bi bi-check2-circle"></i>
+                                    </button>
+                                    {% endif %}
+                                    <a href="#" class="btn btn-sm btn-outline-secondary" title="打印">
+                                        <i class="bi bi-printer"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-4">
+                                <div class="d-flex flex-column align-items-center">
+                                    <i class="bi bi-cart-x text-muted" style="font-size: 2rem;"></i>
+                                    <p class="mt-2 mb-0">暂无销售记录</p>
+                                    <small class="text-muted">请尝试修改筛选条件</small>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if sales %}
+            <div class="row mt-4">
+                <div class="col-md-4 mb-3 mb-md-0">
+                    <div class="card border-0 bg-gradient-light h-100 shadow-sm">
+                        <div class="card-body p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="card-subtitle text-muted">今日销售额（{{ amount_scope_label }}）</h6>
+                                <div class="stat-icon bg-success-subtle rounded-circle p-2">
+                                    <i class="bi bi-currency-yen text-success fs-4"></i>
+                                </div>
+                            </div>
+                            <h3 class="mb-0 text-success fw-bold">¥{{ today_sales|floatformat:2|default:"0.00" }}</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3 mb-md-0">
+                    <div class="card border-0 bg-gradient-light h-100 shadow-sm">
+                        <div class="card-body p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="card-subtitle text-muted">本月销售额（{{ amount_scope_label }}）</h6>
+                                <div class="stat-icon bg-primary-subtle rounded-circle p-2">
+                                    <i class="bi bi-bar-chart-line text-primary fs-4"></i>
+                                </div>
+                            </div>
+                            <h3 class="mb-0 text-primary fw-bold">¥{{ month_sales|floatformat:2|default:"0.00" }}</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card border-0 bg-gradient-light h-100 shadow-sm">
+                        <div class="card-body p-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="card-subtitle text-muted">筛选后订单数</h6>
+                                <div class="stat-icon bg-info-subtle rounded-circle p-2">
+                                    <i class="bi bi-receipt text-info fs-4"></i>
+                                </div>
+                            </div>
+                            <h3 class="mb-0 text-info fw-bold">{{ total_sales }}</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if sales %}
+            <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center mt-4 gap-2">
+                <div class="text-muted small">
+                    显示 {{ sales.start_index }} 至 {{ sales.end_index }} 条，共 {{ sales.paginator.count }} 条记录
+                </div>
+                <div class="d-flex flex-column flex-lg-row align-items-lg-center gap-2">
+                    <nav aria-label="Page navigation">
+                        <ul class="pagination pagination-sm mb-0">
+                            <li class="page-item {% if sales.number <= 1 %}disabled{% endif %}">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page=1">首页</a>
+                            </li>
+                            <li class="page-item {% if not sales.has_previous %}disabled{% endif %}">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={% if sales.has_previous %}{{ sales.previous_page_number }}{% else %}1{% endif %}" aria-label="Previous">
+                                    <span aria-hidden="true">&laquo;</span>
+                                </a>
+                            </li>
+                            {% for page_item in page_items %}
+                            {% if page_item == '…' or page_item == '...' %}
+                            <li class="page-item disabled">
+                                <span class="page-link">{{ page_item }}</span>
+                            </li>
+                            {% elif sales.number == page_item %}
+                            <li class="page-item active">
+                                <span class="page-link">{{ page_item }}</span>
+                            </li>
+                            {% else %}
+                            <li class="page-item">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_item }}">{{ page_item }}</a>
+                            </li>
+                            {% endif %}
+                            {% endfor %}
+                            <li class="page-item {% if not sales.has_next %}disabled{% endif %}">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={% if sales.has_next %}{{ sales.next_page_number }}{% else %}{{ sales.paginator.num_pages }}{% endif %}" aria-label="Next">
+                                    <span aria-hidden="true">&raquo;</span>
+                                </a>
+                            </li>
+                            <li class="page-item {% if sales.number >= total_pages %}disabled{% endif %}">
+                                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ total_pages }}">末页</a>
+                            </li>
+                        </ul>
+                    </nav>
+                    {% if total_pages > 1 %}
+                    <form method="get" class="d-flex align-items-center gap-2">
+                        {% for key, value in pagination_param_pairs %}
+                        <input type="hidden" name="{{ key }}" value="{{ value }}">
+                        {% endfor %}
+                        <label class="small text-muted mb-0" for="reportJumpPageInput">跳转</label>
+                        <input
+                            type="number"
+                            id="reportJumpPageInput"
+                            class="form-control form-control-sm"
+                            name="page"
+                            min="1"
+                            max="{{ total_pages }}"
+                            value="{{ sales.number }}"
+                            style="width: 88px;"
+                        >
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">前往</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const clearSearch = document.getElementById('clearSearch');
+    const dateScopeInput = document.getElementById('dateScopeInput');
+    const dateFilter = document.getElementById('dateFilter');
+    const dateToFilter = document.getElementById('dateToFilter');
+    const saleTypeFilter = document.getElementById('saleTypeFilter');
+    const statusFilter = document.getElementById('statusFilter');
+    const amountScopeFilter = document.getElementById('amountScopeFilter');
+    const filterForm = document.getElementById('filterForm');
+    const viewAll = document.getElementById('viewAll');
+    const viewToday = document.getElementById('viewToday');
+    const viewMonth = document.getElementById('viewMonth');
+    let searchTimeout = null;
+
+    function submitFilterForm() {
+        if (filterForm) {
+            filterForm.submit();
+        }
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            clearTimeout(searchTimeout);
+
+            if (clearSearch) {
+                if (searchTerm.length > 0) {
+                    clearSearch.classList.remove('d-none');
+                } else {
+                    clearSearch.classList.add('d-none');
+                }
+            }
+
+            searchTimeout = setTimeout(function() {
+                submitFilterForm();
+            }, 400);
+        });
+
+        if (clearSearch) {
+            clearSearch.addEventListener('click', function() {
+                searchInput.value = '';
+                searchInput.focus();
+                this.classList.add('d-none');
+                submitFilterForm();
+            });
+
+            if (searchInput.value.trim().length > 0) {
+                clearSearch.classList.remove('d-none');
+            } else {
+                clearSearch.classList.add('d-none');
+            }
+        }
+    }
+
+    if (dateFilter) {
+        dateFilter.addEventListener('change', function() {
+            if (dateScopeInput) dateScopeInput.value = '';
+            submitFilterForm();
+        });
+    }
+
+    if (dateToFilter) {
+        dateToFilter.addEventListener('change', function() {
+            if (dateScopeInput) dateScopeInput.value = '';
+            submitFilterForm();
+        });
+    }
+
+    if (saleTypeFilter) {
+        saleTypeFilter.addEventListener('change', submitFilterForm);
+    }
+    if (statusFilter) {
+        statusFilter.addEventListener('change', submitFilterForm);
+    }
+    if (amountScopeFilter) {
+        amountScopeFilter.addEventListener('change', submitFilterForm);
+    }
+
+    function setActiveButton(button) {
+        const buttons = [viewAll, viewToday, viewMonth].filter(Boolean);
+        buttons.forEach(function(btn) { btn.classList.remove('active'); });
+        button.classList.add('active');
+    }
+
+    if (viewAll) {
+        viewAll.addEventListener('click', function() {
+            setActiveButton(this);
+            if (dateFilter) dateFilter.value = '';
+            if (dateToFilter) dateToFilter.value = '';
+            if (dateScopeInput) dateScopeInput.value = 'all';
+            submitFilterForm();
+        });
+    }
+
+    if (viewToday) {
+        viewToday.addEventListener('click', function() {
+            setActiveButton(this);
+            const today = new Date().toISOString().split('T')[0];
+            if (dateFilter) dateFilter.value = today;
+            if (dateToFilter) dateToFilter.value = today;
+            if (dateScopeInput) dateScopeInput.value = '';
+            submitFilterForm();
+        });
+    }
+
+    if (viewMonth) {
+        viewMonth.addEventListener('click', function() {
+            setActiveButton(this);
+            const date = new Date();
+            const firstDay = new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0];
+            const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().split('T')[0];
+            if (dateFilter) dateFilter.value = firstDay;
+            if (dateToFilter) dateToFilter.value = lastDay;
+            if (dateScopeInput) dateScopeInput.value = '';
+            submitFilterForm();
+        });
+    }
+
+    function initQuickRangeState() {
+        const buttons = [viewAll, viewToday, viewMonth].filter(Boolean);
+        buttons.forEach(function(btn) { btn.classList.remove('active'); });
+
+        if (!dateFilter || !dateToFilter) {
+            return;
+        }
+
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
+        const fromVal = dateFilter.value || '';
+        const toVal = dateToFilter.value || '';
+        const scopeVal = dateScopeInput ? (dateScopeInput.value || '') : '';
+
+        if (scopeVal === 'all') {
+            if (viewAll) viewAll.classList.add('active');
+            return;
+        }
+        if (fromVal === todayStr && toVal === todayStr) {
+            if (viewToday) viewToday.classList.add('active');
+            return;
+        }
+        if (fromVal === firstDay && (toVal === todayStr || toVal === lastDay)) {
+            if (viewMonth) viewMonth.classList.add('active');
+        }
+    }
+
+    initQuickRangeState();
+});
+</script>
+{% endblock %}
