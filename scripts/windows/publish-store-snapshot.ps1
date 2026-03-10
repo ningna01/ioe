@@ -6,6 +6,10 @@ $repoRoot = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
 $logDir = Join-Path $repoRoot 'logs'
 $logFile = Join-Path $logDir 'store-snapshot-sync.log'
 
+# Git identity for automated commits (used by Task Scheduler)
+$gitUserEmail = 'gong17779211256@gmail.com'
+$gitUserName  = 'ningna01'
+
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 function Write-Log {
@@ -63,7 +67,7 @@ try {
 
     Invoke-Git -Arguments @('add', 'db/store_snapshot.json')
     $commitMessage = "chore(data): update store snapshot $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-    Invoke-Git -Arguments @('commit', '-m', $commitMessage)
+    Invoke-Git -Arguments @('-c', "user.email=$gitUserEmail", '-c', "user.name=$gitUserName", 'commit', '-m', $commitMessage)
     Invoke-Git -Arguments @('push')
 
     Write-Log "Store snapshot publish completed successfully."
