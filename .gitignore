@@ -92,7 +92,6 @@ yarn-error.log
 
 # 本地文件
 docs/
-scripts/
 inventory/tests/
 packaging/
 .venv_packager/
@@ -100,3 +99,8 @@ dist-macos/
 dist-windows/
 .venv_packager_win7/
 .venv_packager_win10/
+
+scripts/*
+!scripts/windows/
+scripts/windows/*
+!scripts/windows/publish-store-snapshot.ps1
