@@ -28,6 +28,7 @@ from inventory.forms import (
     ProductImageFormSet, ProductBulkForm, ProductImportForm
 )
 from inventory.utils import generate_thumbnail
+from inventory.utils.logging import record_operation_log
 from inventory.services import product_service
 from inventory.services.payable_service import PayableService
 from inventory.services.warehouse_scope_service import WarehouseScopeService
@@ -309,7 +310,7 @@ def product_create(request):
 
                             warehouse_inventory = inventory_obj
                             transaction_obj = stock_result
-                            OperationLog.objects.create(
+                            record_operation_log(
                                 operator=request.user,
                                 operation_type='INVENTORY',
                                 details=(
@@ -757,7 +758,7 @@ def product_import(request):
                     messages.error(request, "不支持的文件格式，请上传 CSV 或 XLSX 文件")
                     return render(request, 'inventory/product_import.html', {'form': form})
 
-                OperationLog.objects.create(
+                record_operation_log(
                     operator=request.user,
                     operation_type='INVENTORY',
                     details=(
@@ -785,7 +786,7 @@ def product_import(request):
                 return redirect('product_list')
             
             except Exception as e:
-                OperationLog.objects.create(
+                record_operation_log(
                     operator=request.user,
                     operation_type='INVENTORY',
                     details=f"商品导入失败: source=product_import; reason={str(e)}",

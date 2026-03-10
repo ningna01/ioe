@@ -21,7 +21,7 @@ import zipfile
 from datetime import datetime
 
 from inventory.permissions.decorators import permission_required
-from inventory.utils.logging import log_view_access
+from inventory.utils.logging import log_view_access, record_system_log_entry
 from inventory.services.backup_service import BackupService
 
 # 获取logger
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 def _safe_log_backup_action(user, action_flag, object_id, object_repr, change_message):
     """记录备份相关日志，失败时不影响主流程。"""
     try:
-        LogEntry.objects.create(
+        record_system_log_entry(
             user=user,
             action_flag=action_flag,
             content_type=None,

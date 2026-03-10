@@ -10,6 +10,7 @@ from .models.common import OperationLog
 from . import forms
 from .ali_barcode_service import AliBarcodeService
 from .services.warehouse_scope_service import WarehouseScopeService
+from .utils.logging import record_operation_log
 
 
 def _ensure_product_manage_access(user):
@@ -137,7 +138,7 @@ def barcode_product_create(request):
                 messages.warning(request, f'商品已创建，但初始库存写入失败: {stock_update_error}')
             
             # 记录操作日志
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='INVENTORY',
                 details=f'添加新商品: {product.name} (条码: {product.barcode}), 初始库存: {initial_stock}',

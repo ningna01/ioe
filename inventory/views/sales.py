@@ -30,6 +30,7 @@ from inventory.models import (
 from inventory.forms import SaleForm, SaleItemForm
 from inventory.services.warehouse_scope_service import WarehouseScopeService
 from inventory.services.user_mode_service import is_sales_focus_user
+from inventory.utils.logging import record_operation_log
 from inventory.utils.query_utils import paginate_queryset, build_elided_page_range
 
 
@@ -131,7 +132,7 @@ def _create_sale_stock_change_log(
     source,
 ):
     warehouse_name = sale.warehouse.name if sale.warehouse else '未绑定仓库'
-    OperationLog.objects.create(
+    record_operation_log(
         operator=operator,
         operation_type='SALE',
         details=(
@@ -774,7 +775,7 @@ def sale_create(request):
                             f'支付方式: {sale.get_payment_method_display()}，仓库: {selected_warehouse.name}；'
                             f'来源: sale_create'
                         )
-                    OperationLog.objects.create(
+                    record_operation_log(
                         operator=request.user,
                         operation_type='SALE',
                         details=operation_details,
@@ -1049,7 +1050,7 @@ def sale_complete(request, sale_id):
                             f'支付方式: {sale.get_payment_method_display()}；来源: sale_complete'
                         )
 
-                    OperationLog.objects.create(
+                    record_operation_log(
                         operator=request.user,
                         operation_type='SALE',
                         details=details,
@@ -1148,7 +1149,7 @@ def sale_cancel(request, sale_id):
                     sale.status = 'ABANDONED'
                     # 未结算放弃单保留定金记账口径，仅改变业务状态用于区分“已删除”。
                     sale.save(update_fields=['status', 'deposit_amount', 'final_amount'])
-                    OperationLog.objects.create(
+                    record_operation_log(
                         operator=request.user,
                         operation_type='SALE',
                         details=(
@@ -1165,7 +1166,7 @@ def sale_cancel(request, sale_id):
                     sale.deposit_amount = Decimal('0.00')
                     sale.final_amount = Decimal('0.00')
                     sale.save(update_fields=['status', 'deposit_amount', 'final_amount'])
-                    OperationLog.objects.create(
+                    record_operation_log(
                         operator=request.user,
                         operation_type='SALE',
                         details=(

@@ -7,6 +7,7 @@ from django.contrib.contenttypes.models import ContentType
 from inventory.models import Category, OperationLog, UserWarehouseAccess
 from inventory.forms import CategoryForm
 from inventory.services.warehouse_scope_service import WarehouseScopeService
+from inventory.utils.logging import record_operation_log
 
 
 def _ensure_category_manage_access(user):
@@ -33,7 +34,7 @@ def category_create(request):
             category = form.save()
             
             # 记录操作日志
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='INVENTORY',
                 details=f'添加商品分类: {category.name}',
@@ -60,7 +61,7 @@ def category_edit(request, category_id):
             form.save()
             
             # 记录操作日志
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='INVENTORY',
                 details=f'编辑商品分类: {category.name}',
@@ -90,7 +91,7 @@ def category_delete(request, category_id):
         category.delete()
         
         # 记录操作日志
-        OperationLog.objects.create(
+        record_operation_log(
             operator=request.user,
             operation_type='OTHER',
             details=f'删除商品分类: {category_name}',

@@ -3,7 +3,8 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
-from inventory.models import DebtOrder, OperationLog
+from inventory.models import DebtOrder
+from inventory.utils.logging import record_operation_log
 
 
 class PayableService:
@@ -42,7 +43,7 @@ class PayableService:
             settlement_mode=settlement_mode,
         )
 
-        OperationLog.objects.create(
+        record_operation_log(
             operator=created_by,
             operation_type='OTHER',
             details=(
@@ -75,7 +76,7 @@ class PayableService:
             'updated_at',
         ])
 
-        OperationLog.objects.create(
+        record_operation_log(
             operator=operator,
             operation_type='OTHER',
             details=(
@@ -126,7 +127,7 @@ class PayableService:
             created_by=operator,
         )
 
-        OperationLog.objects.create(
+        record_operation_log(
             operator=operator,
             operation_type='OTHER',
             details=(

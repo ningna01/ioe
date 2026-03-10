@@ -9,6 +9,7 @@ from django.contrib.contenttypes.models import ContentType
 from ...models import UserWarehouseAccess, Warehouse
 from ...models.common import OperationLog
 from ...permissions.decorators import superuser_required
+from ...utils.logging import record_operation_log
 
 WAREHOUSE_ROLE_TEMPLATES = {
     'warehouse_manager': [
@@ -299,7 +300,7 @@ def user_create(request):
         sales_group.permissions.add(*permissions)
         
         # 记录日志
-        OperationLog.objects.create(
+        record_operation_log(
             operator=request.user,
             operation_type='OTHER',
             details=f'创建销售员用户组并设置权限',
@@ -393,7 +394,7 @@ def user_create(request):
             )
             
             # 记录操作日志
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='OTHER',
                 details=f'创建用户: {username}（授权仓库 {len(selected_warehouses)} 个）',
@@ -511,7 +512,7 @@ def user_update(request, pk):
             )
             
             # 记录操作日志
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='OTHER',
                 details=f'更新用户: {user.username}（授权仓库 {len(selected_warehouses)} 个）',
@@ -567,7 +568,7 @@ def user_delete(request, pk):
         user.delete()
         
         # 记录操作日志
-        OperationLog.objects.create(
+        record_operation_log(
             operator=request.user,
             operation_type='OTHER',
             details=f'删除用户: {username}',

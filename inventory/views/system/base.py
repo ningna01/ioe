@@ -51,6 +51,8 @@ def system_settings(request):
             'debug_mode': settings.DEBUG,
             'media_root': settings.MEDIA_ROOT,
             'timezone': settings.TIME_ZONE,
+            'time_source': '店铺电脑系统时间',
+            'snapshot_schedule': '每天 12:00（按哈博罗内本地时间）',
             'database_engine': settings.DATABASES['default']['ENGINE'],
             'version': getattr(settings, 'VERSION', '1.0.0'),
         }

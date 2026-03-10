@@ -56,7 +56,7 @@ class SystemConfig(models.Model):
     enable_low_stock_alert = models.BooleanField(verbose_name="启用低库存提醒", default=True)
     default_tax_rate = models.DecimalField(max_digits=5, decimal_places=2, verbose_name="默认税率", default=0)
     currency_symbol = models.CharField(max_length=10, verbose_name="货币符号", default="¥")
-    timezone = models.CharField(max_length=50, verbose_name="时区", default="Asia/Shanghai")
+    timezone = models.CharField(max_length=50, verbose_name="时区", default="Africa/Gaborone")
     
     class Meta:
         verbose_name = '系统配置'

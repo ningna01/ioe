@@ -21,6 +21,8 @@ IOE_LOG_DIR = os.environ.get('IOE_LOG_DIR')
 IOE_STATIC_DIR = os.environ.get('IOE_STATIC_DIR')
 IOE_BACKUP_ROOT = os.environ.get('IOE_BACKUP_ROOT')
 IOE_TEMP_DIR = os.environ.get('IOE_TEMP_DIR')
+IOE_STORE_SNAPSHOT_PATH = os.environ.get('IOE_STORE_SNAPSHOT_PATH')
+IOE_LOCAL_VIEW_DB_PATH = os.environ.get('IOE_LOCAL_VIEW_DB_PATH')
 
 VERSION = os.environ.get('IOE_APP_VERSION', '1.0.1')
 
@@ -124,6 +126,12 @@ TIME_ZONE = 'Africa/Gaborone'
 USE_I18N = True
 
 USE_TZ = True
+
+IOE_ENABLE_OPERATION_LOGS = os.environ.get('IOE_ENABLE_OPERATION_LOGS', 'False') == 'True'
+IOE_ENABLE_ADMIN_LOGS = os.environ.get('IOE_ENABLE_ADMIN_LOGS', 'False') == 'True'
+
+STORE_SNAPSHOT_PATH = Path(IOE_STORE_SNAPSHOT_PATH) if IOE_STORE_SNAPSHOT_PATH else (BASE_DIR / 'db' / 'store_snapshot.json')
+LOCAL_VIEW_DB_PATH = Path(IOE_LOCAL_VIEW_DB_PATH) if IOE_LOCAL_VIEW_DB_PATH else (BASE_DIR / 'db' / 'local_view.sqlite3')
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')

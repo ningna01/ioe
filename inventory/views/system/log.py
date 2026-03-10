@@ -16,7 +16,7 @@ import re
 from datetime import datetime, timedelta
 
 from inventory.permissions.decorators import permission_required
-from inventory.utils.logging import log_view_access
+from inventory.utils.logging import log_view_access, record_system_log_entry
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +245,7 @@ def download_log_file(request, file_name):
     
     try:
         # 记录下载操作
-        LogEntry.objects.create(
+        record_system_log_entry(
             user=request.user,
             action_flag=1,
             content_type_id=0,
@@ -291,7 +291,7 @@ def delete_log_file(request, file_name):
             os.remove(file_path)
             
             # 记录删除操作
-            LogEntry.objects.create(
+            record_system_log_entry(
                 user=request.user,
                 action_flag=3,
                 content_type_id=0,

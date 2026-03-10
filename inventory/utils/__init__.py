@@ -2,7 +2,7 @@
 
 from .date_utils import get_month_range, get_quarter_range, get_year_range, get_date_range
 from .csv_utils import validate_csv, validate_csv_data
-from .logging import log_operation
+from .logging import log_operation, record_operation_log, record_system_log_entry
 from .query_utils import get_paginated_queryset, build_filter_query
 from .view_utils import require_ajax, require_post, get_referer_url, get_int_param
 from .image_utils import generate_thumbnail, save_thumbnail, image_to_base64, resize_image, get_image_dimensions
@@ -34,7 +34,7 @@ __all__ = [
     'validate_csv', 'validate_csv_data',
     
     # 日志工具
-    'log_operation',
+    'log_operation', 'record_operation_log', 'record_system_log_entry',
     
     # 查询工具
     'get_paginated_queryset', 'build_filter_query',

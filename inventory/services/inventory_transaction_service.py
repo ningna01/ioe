@@ -9,12 +9,12 @@ from django.utils import timezone
 from inventory.exceptions import AuthorizationError
 from inventory.models import (
     InventoryTransaction,
-    OperationLog,
     UserWarehouseAccess,
     update_inventory,
 )
 from inventory.services.payable_service import PayableService
 from inventory.services.warehouse_scope_service import WarehouseScopeService
+from inventory.utils.logging import record_operation_log
 
 
 class InventoryTransactionService:
@@ -54,7 +54,7 @@ class InventoryTransactionService:
             f'settled_offset_created={len(payable_summary["offset_created_order_ids"])}, '
             f'skipped={len(payable_summary["skipped_order_ids"])}'
         )
-        OperationLog.objects.create(
+        record_operation_log(
             operator=operator,
             operation_type='INVENTORY',
             details=details,

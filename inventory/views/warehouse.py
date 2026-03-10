@@ -14,6 +14,7 @@ from inventory.models import Warehouse, OperationLog, UserWarehouseAccess
 from inventory.forms import WarehouseForm
 from inventory.permissions.decorators import superuser_required
 from inventory.services.warehouse_scope_service import WarehouseScopeService
+from inventory.utils.logging import record_operation_log
 
 
 WAREHOUSE_MANAGER_PERMISSION_BITS = UserWarehouseAccess.bits_for_codes([
@@ -98,7 +99,7 @@ def warehouse_create(request):
                     access.save(update_fields=dirty_fields)
             
             # 记录操作日志
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='INVENTORY',
                 details=f'添加仓库: {warehouse.name}',
@@ -133,7 +134,7 @@ def warehouse_edit(request, warehouse_id):
             warehouse = form.save()
             
             # 记录操作日志
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='INVENTORY',
                 details=f'编辑仓库: {warehouse.name}',
@@ -172,7 +173,7 @@ def warehouse_delete(request, warehouse_id):
         warehouse.delete()
         
         # 记录操作日志
-        OperationLog.objects.create(
+        record_operation_log(
             operator=request.user,
             operation_type='INVENTORY',
             details=f'删除仓库: {warehouse_name}',

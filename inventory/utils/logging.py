@@ -1,15 +1,31 @@
 """
 Logging utilities for the inventory system.
 """
-import logging
-import json
-import traceback
 import functools
+import json
+import logging
+import traceback
+from typing import Any
+
+from django.conf import settings
+from django.contrib.admin.models import LogEntry
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
 logger = logging.getLogger(__name__)
+
+LOGENTRY_ACTION_ADDITION = 1
+LOGENTRY_ACTION_CHANGE = 2
+LOGENTRY_ACTION_DELETION = 3
+
+LEGACY_LOG_ACTION_FLAGS = {
+    'BACKUP': LOGENTRY_ACTION_CHANGE,
+    'RESTORE': LOGENTRY_ACTION_CHANGE,
+    'DOWNLOAD': LOGENTRY_ACTION_CHANGE,
+    'ERROR': LOGENTRY_ACTION_CHANGE,
+    'DELETE': LOGENTRY_ACTION_DELETION,
+}
 
 def get_client_ip(request):
     """Get client IP address from request."""
@@ -19,6 +35,59 @@ def get_client_ip(request):
     else:
         ip = request.META.get('REMOTE_ADDR')
     return ip
+
+
+def record_operation_log(**kwargs: Any):
+    """Create an OperationLog entry only when operation logging is enabled."""
+    if not getattr(settings, 'IOE_ENABLE_OPERATION_LOGS', False):
+        return None
+
+    from inventory.models import OperationLog
+
+    try:
+        payload = dict(kwargs)
+        operator = payload.get('operator')
+        related_object = payload.pop('related_object', None)
+        related_content_type = payload.get('related_content_type')
+        related_object_id = payload.get('related_object_id')
+
+        if related_object is not None:
+            payload['related_content_type'] = ContentType.objects.get_for_model(related_object)
+            payload['related_object_id'] = related_object.pk or 0
+        elif related_content_type is None or related_object_id is None:
+            if operator is None:
+                logger.warning("Skipping operation log without operator: %s", payload)
+                return None
+            payload['related_content_type'] = ContentType.objects.get_for_model(User)
+            payload['related_object_id'] = operator.pk or 0
+
+        return OperationLog.objects.create(**payload)
+    except Exception:
+        logger.warning("Failed to record operation log", exc_info=True)
+        return None
+
+
+def record_system_log_entry(**kwargs: Any):
+    """Create a Django admin LogEntry only when admin logging is enabled."""
+    if not getattr(settings, 'IOE_ENABLE_ADMIN_LOGS', False):
+        return None
+
+    try:
+        payload = dict(kwargs)
+        action_type = payload.pop('action_type', None)
+        if 'action_flag' not in payload:
+            payload['action_flag'] = LEGACY_LOG_ACTION_FLAGS.get(action_type, LOGENTRY_ACTION_CHANGE)
+        payload.setdefault('content_type', None)
+        if payload.get('content_type_id') in {0, '0', ''}:
+            payload.pop('content_type_id', None)
+        if 'object_id' in payload and payload['object_id'] is not None:
+            payload['object_id'] = str(payload['object_id'])
+        payload.setdefault('object_repr', '')
+        payload.setdefault('change_message', '')
+        return LogEntry.objects.create(**payload)
+    except Exception:
+        logger.warning("Failed to record admin log entry", exc_info=True)
+        return None
 
 def log_action(user, operation_type, details, related_object=None):
     """
@@ -30,29 +99,12 @@ def log_action(user, operation_type, details, related_object=None):
         details (str): Details about the operation
         related_object (Model, optional): The object related to this operation
     """
-    from inventory.models import OperationLog
-    
-    # Create operation log
-    log_entry = OperationLog(
+    return record_operation_log(
         operator=user,
         operation_type=operation_type,
-        details=details
+        details=details,
+        related_object=related_object,
     )
-    
-    # If related object is provided, link it
-    if related_object:
-        content_type = ContentType.objects.get_for_model(related_object)
-        log_entry.related_content_type = content_type
-        log_entry.related_object_id = related_object.id
-    else:
-        # Handle the case when no related object is provided
-        # Get the default content type (User model can be used)
-        content_type = ContentType.objects.get_for_model(User)
-        log_entry.related_content_type = content_type
-        log_entry.related_object_id = user.id  # Use the user's ID as fallback
-    
-    log_entry.save()
-    return log_entry
 
 def log_operation(user, operation_type, details, related_object=None, request=None):
     """
@@ -68,8 +120,6 @@ def log_operation(user, operation_type, details, related_object=None, request=No
     返回:
         OperationLog: 创建的日志记录对象
     """
-    from inventory.models import OperationLog
-    
     try:
         # 准备日志内容
         log_details = details
@@ -121,8 +171,8 @@ def log_view_access(operation_type):
                     }
                     
                     # Log the access
-                    log_action(
-                        user=request.user,
+                    record_operation_log(
+                        operator=request.user,
                         operation_type=operation_type,
                         details=f"Accessed {view_func.__name__}: {json.dumps(details)}"
                     )

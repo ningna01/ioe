@@ -67,6 +67,70 @@ python manage.py runserver
 
 浏览器访问 [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
 
+## 数据快照同步
+
+系统运行时区固定为 `Africa/Gaborone`。店铺电脑应将 Windows 系统时区设置为哈博罗内对应时区，定时任务按系统本地时间执行。
+
+### 导出单仓库快照
+
+```bash
+python manage.py export_store_snapshot
+```
+
+默认会生成 `db/store_snapshot.json`，并排除以下内容：
+
+- `contenttypes`
+- `auth.Permission`
+- `sessions.session`
+- `inventory.OperationLog`
+- `admin.LogEntry`
+
+### Windows 店铺电脑自动同步
+
+仓库内提供了 `scripts/windows/publish-store-snapshot.ps1`。建议在 Task Scheduler 中这样配置：
+
+1. 触发时间：每天 `12:00`
+2. 时区：跟随店铺电脑 Windows 系统时区（哈博罗内）
+3. 并发策略：禁止并发运行
+4. 执行命令：`powershell.exe -ExecutionPolicy Bypass -File scripts/windows/publish-store-snapshot.ps1`
+
+脚本会按以下顺序执行：
+
+1. 检查 GitHub 连通性和认证
+2. 工作区不干净时退出
+3. `git pull --rebase`
+4. `python manage.py export_store_snapshot`
+5. `db/store_snapshot.json` 无变化则退出
+6. 有变化时自动 `commit` 和 `push`
+
+### 本地查看店铺数据
+
+你的电脑只需要拉取快照并导入到独立查看库：
+
+```bash
+git pull
+export IOE_DB_PATH="$(pwd)/db/local_view.sqlite3"
+python manage.py migrate --noinput
+python manage.py load_store_snapshot
+python manage.py runserver
+```
+
+Windows PowerShell 可使用：
+
+```powershell
+git pull
+$env:IOE_DB_PATH = Join-Path (Get-Location) "db/local_view.sqlite3"
+python manage.py migrate --noinput
+python manage.py load_store_snapshot
+python manage.py runserver
+```
+
+说明：
+
+- `load_store_snapshot` 默认只允许导入到 `db/local_view.sqlite3`
+- 如需强制导入到其他数据库，显式加 `--force`
+- 店铺电脑是唯一快照写入源；个人电脑只拉取并查看，不回推快照文件
+
 ## 📄 License
 
 本项目采用 [MIT License](LICENSE)。

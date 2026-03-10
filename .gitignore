@@ -28,6 +28,10 @@ wheels/
 # 本地数据库文件
 db.sqlite3
 db.sqlite3-journal
+local_view.sqlite3
+local_view.sqlite3-journal
+local_view.sqlite3-wal
+local_view.sqlite3-shm
 
 # 媒体文件和上传内容
 media/

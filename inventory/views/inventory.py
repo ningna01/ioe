@@ -26,6 +26,7 @@ from inventory.forms import InventoryTransactionForm
 from inventory.services.inventory_transaction_service import InventoryTransactionService
 from inventory.services.payable_service import PayableService
 from inventory.services.warehouse_scope_service import WarehouseScopeService
+from inventory.utils.logging import record_operation_log
 
 
 def _ensure_inventory_read_access(user):
@@ -186,7 +187,7 @@ def _create_inventory_operation_log(
     source,
 ):
     """统一库存操作日志格式。"""
-    OperationLog.objects.create(
+    record_operation_log(
         operator=operator,
         operation_type='INVENTORY',
         details=(
@@ -358,7 +359,7 @@ def inventory_update_warning_level(request, inventory_id):
             inventory_item.warning_level = warning_level
             inventory_item.save(update_fields=['warning_level'])
 
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='INVENTORY',
                 details=(

@@ -17,7 +17,7 @@ from inventory.models import (
     update_inventory,
 )
 from inventory.exceptions import InsufficientStockError, InventoryValidationError
-from inventory.utils.logging import log_exception, log_action
+from inventory.utils.logging import log_exception, log_action, record_operation_log
 
 class InventoryService:
     """Service for inventory operations."""
@@ -128,10 +128,7 @@ class InventoryService:
             inventory: The inventory to check
         """
         if inventory.quantity <= inventory.warning_level:
-            # Log warning
-            from inventory.models import OperationLog
-            
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=User.objects.filter(is_superuser=True).first(),
                 operation_type='INVENTORY',
                 details=f"库存预警: {inventory.product.name} 库存数量 ({inventory.quantity}) 低于预警水平 ({inventory.warning_level})",

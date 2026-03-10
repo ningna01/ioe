@@ -15,6 +15,7 @@ from django.db.models import management
 from django.utils.text import slugify
 import zipfile
 from django.http import HttpResponse
+from inventory.utils.logging import record_system_log_entry
 
 # 获取logger
 logger = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ def restore_backup(request, backup_name):
                             shutil.copy2(src_path, dst_path)
             
             # 记录日志
-            LogEntry.objects.create(
+            record_system_log_entry(
                 user=request.user,
                 action_type='RESTORE',
                 object_id=backup_name,
@@ -139,7 +140,7 @@ def restore_backup(request, backup_name):
             messages.error(request, f"恢复失败: {str(e)}")
             logger.error(f"恢复备份 {backup_name} 失败: {str(e)}")
             # 记录恢复失败日志
-            LogEntry.objects.create(
+            record_system_log_entry(
                 user=request.user,
                 action_type='ERROR',
                 object_id=backup_name,
@@ -251,7 +252,7 @@ def create_backup(request):
                 json.dump(backup_info, f, indent=4, ensure_ascii=False)
             
             # 记录日志
-            LogEntry.objects.create(
+            record_system_log_entry(
                 user=request.user,
                 action_type='BACKUP',
                 object_id=backup_name,
@@ -287,7 +288,7 @@ def delete_backup(request, backup_name):
         shutil.rmtree(backup_dir)
         
         # 记录日志
-        LogEntry.objects.create(
+        record_system_log_entry(
             user=request.user,
             action_type='DELETE',
             object_id=backup_name,
@@ -332,7 +333,7 @@ def download_backup(request, backup_name):
                 response['Content-Disposition'] = f'attachment; filename="{backup_name}.zip"'
                 
                 # 记录下载日志
-                LogEntry.objects.create(
+                record_system_log_entry(
                     user=request.user,
                     action_type='DOWNLOAD',
                     object_id=backup_name,

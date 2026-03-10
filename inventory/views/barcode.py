@@ -13,6 +13,7 @@ from inventory.ali_barcode_service import AliBarcodeService
 from inventory.services.product_service import search_products
 from inventory.services.stock_scope_service import StockScopeService
 from inventory.services.warehouse_scope_service import WarehouseScopeService
+from inventory.utils.logging import record_operation_log
 
 # 外部条码服务API配置（示例用，实际应替换为自己的API密钥）
 BARCODE_API_APP_KEY = "your_app_key"
@@ -150,7 +151,7 @@ def barcode_product_create(request):
                 messages.warning(request, f'商品已创建，但初始库存写入失败: {stock_update_error}')
             
             # 记录操作日志
-            OperationLog.objects.create(
+            record_operation_log(
                 operator=request.user,
                 operation_type='INVENTORY',
                 details=f'添加新商品: {product.name} (条码: {product.barcode}), 初始库存: {initial_stock}',

@@ -1,10 +1,9 @@
 """视图工具函数，用于减少视图中的重复代码"""
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
-from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
 
-from inventory.models import OperationLog
+from inventory.utils.logging import record_operation_log
 
 def log_operation(user, operation_type, details, related_object=None):
     """
@@ -16,19 +15,12 @@ def log_operation(user, operation_type, details, related_object=None):
         details: 操作详情
         related_object: 相关对象
     """
-    log_entry = OperationLog(
+    return record_operation_log(
         operator=user,
         operation_type=operation_type,
-        details=details
+        details=details,
+        related_object=related_object,
     )
-    
-    if related_object:
-        content_type = ContentType.objects.get_for_model(related_object)
-        log_entry.related_content_type = content_type
-        log_entry.related_object_id = related_object.id
-    
-    log_entry.save()
-    return log_entry
 
 def handle_form_submission(request, form_class, template_name, success_url, 
                           success_message, instance=None, extra_context=None, 
